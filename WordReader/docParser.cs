@@ -211,9 +211,6 @@ namespace WordReader
                 if (!(CFHeader.NumDirSectors == 0 && CFHeader.MajorVersion.SequenceEqual(majorVersion[0]))) return false;
                 if (!(CFHeader.MiniStreamCutoffSize == 4096)) return false;
 
-                //пропускаем остаток сектора, если Major Version is 4
-                if (CFHeader.MajorVersion.SequenceEqual(majorVersion[1])) fileReader.BaseStream.Seek(3584, SeekOrigin.Current);
-
                 return true;
             }
 
