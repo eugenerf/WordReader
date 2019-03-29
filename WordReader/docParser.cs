@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Runtime.InteropServices.ComTypes;
 
 namespace WordReader
 {
@@ -44,6 +45,36 @@ namespace WordReader
                 //NOTE: for major version 3 CFHeader size is 512 bytes.
                 //NOTE: for major version 4 CFHeader size is 4096 bytes, so the remaining part (3584 bytes) if filled with zeros
             }
+
+            private struct DirectoryEntry   //Compound File Directory Entry structure
+            {
+                internal string Name;           //Directory Entry Name [64 bytes]
+                internal uint NameLength;       //Directory Entry Name in bytes (MUST: <=64) [2 bytes]
+                internal byte ObjectType;       //Object Type of the current directory entry
+                                                //(MUST: 0x00 (unknown or unallocated, 0x01 (Storage object), 0x02 (Stream object) OR 0x05 (Root Storage object)
+                                                //[1 byte]
+                internal byte ColorFlag;        //Color flag of the current directory entry (MUST: 0x00 (red), 0x01 (black)) [1 byte]
+                internal uint LeftSibling;      //Left Sibling stream ID (MUST: 0xFFFFFFFF if there is no left sibling) [4 bytes]
+                internal uint RightSibling;     //Right Sibling stream ID (MUST: 0xFFFFFFFF if there is no right sibling) [4 bytes]
+                internal uint Child;            //Child object stream ID (MUST: 0xFFFFFFFF if there is no child objects) [4 bytes]
+                internal byte[] CLSID;          //Object class GUID, if current entry is for a storage object or root storage object
+                                                //(MUST: all zeros for a stream object. MAY: all zeros for storage object or root storage object,
+                                                //thus indicating that no object class is associated with the storage)
+                                                //[16 bytes]
+                internal byte[] StateBits;      //User-defined flags if current entry is for a storage object or root storage object
+                                                //(SHOULD: all zeros for a stream object)
+                                                //[4 bytes]
+                internal long CreationTime; //Creation Time for a storage object (MUST: all zeros for a stream object OR root storage object) [8 bytes]
+                internal long ModifiedTime; //Modification Time for a storage object (MUST: all zeros for a stream object. MAY: all zeros for a root storage object) [8 bytes]
+                internal uint StartSectorLoc;   //Starting Sector Location  if this is a stream object (MUST: all zeros for a storage object.
+                                                //MUST: first sector of the mini stream for a root storage object if the mini stream exists)
+                                                //[4 bytes]
+                internal ulong StreamSizeV4;    //Size of the user-defined data if this is a stream object. Size of the mini stream for a root storage object
+                                                //(MUST: all zeros for a storage object)
+                                                //[8 bytes]                                                
+                internal uint StreamSizeV3;     //NOTE: THIS FIELD IS NOT IN REAL COMPOUND FILE DIRECTORY ENTRY STRUCTURE! I ADDED IT JUST FOR MY OWN CONVENIENCE!
+                                                //Same as StreamSizeV4, but used for version 3 compound files. That is StreamSizeV4 without most significant 32 bits.
+            }
             #endregion
 
             #region Поля
@@ -52,6 +83,7 @@ namespace WordReader
             private uint[] DIFAT;                   //entire DIFAT array (from header + from DIFAT sectors)
             private uint[] FAT;                     //FAT array
             private uint[] miniFAT;                 //miniFAT array (from standart chain from header and FAT)
+            private DirectoryEntry[] DEArray;       //Directory Entry Array
             #endregion
 
             #region protected internal
@@ -71,6 +103,7 @@ namespace WordReader
                 readDIFAT();
                 readFAT();
                 readminiFAT();
+                readDEArray();
             }
             #endregion
 
@@ -263,6 +296,47 @@ namespace WordReader
                 {
                     miniFAT[i] = currentminiFATsector;  //сохранили номер текущего miniFAT сектора
                     currentminiFATsector = FAT[currentminiFATsector];   //берем из FAT номер следующего miniFAT сектора
+                }
+            }
+
+            private void readDEArray()  //чтение Directory Entry Array из fileReader
+            {
+                uint sectorSize = (uint)Math.Pow(2, BitConverter.ToUInt16(CFHeader.SectorShift, 0));    //размер сектора в файле
+                int numDirEntries = (int)(sectorSize) / 128;    //кол-во directory entry в одном секторе (4 для version 3 или 32 для version 4) - размер одной entry = 128 bytes
+                uint currentDirSector = CFHeader.FirstDirSectorLoc; //текущий сектор с Directory Entry
+                int curDirSectorOrder = 0;  //номер текущего сектора по порядку
+                while (currentDirSector != SpecialValues.ENDOFCHAIN)    //пока не разберем всю цепочку directory stream
+                {
+                    //выделение памяти
+                    if (DEArray == null) DEArray = new DirectoryEntry[numDirEntries];   //первый сектор с Directory entry
+                    else Array.Resize(ref DEArray, DEArray.Length + numDirEntries);     //все последующие сектора
+                    uint sectorOffset = (currentDirSector + 1) * sectorSize;            //номер первого байта текущего сектора в файле
+                    fileReader.BaseStream.Seek(sectorOffset, SeekOrigin.Begin);     //перемотали файл
+
+                    for (int i = curDirSectorOrder * numDirEntries; i < (curDirSectorOrder + 1) * numDirEntries; i++)   //пробегаем все directory entry в текущем секторе
+                    {
+                        //читаем данные текущей directory entry
+                        DEArray[i].Name = Encoding.Unicode.GetString(fileReader.ReadBytes(64));
+                        DEArray[i].NameLength = fileReader.ReadUInt16();
+                        DEArray[i].ObjectType = fileReader.ReadByte();
+                        DEArray[i].ColorFlag = fileReader.ReadByte();
+                        DEArray[i].LeftSibling = fileReader.ReadUInt32();
+                        DEArray[i].RightSibling = fileReader.ReadUInt32();
+                        DEArray[i].Child = fileReader.ReadUInt32();
+                        DEArray[i].CLSID = fileReader.ReadBytes(16);
+                        DEArray[i].StateBits = fileReader.ReadBytes(4);
+                        DEArray[i].CreationTime = fileReader.ReadInt64();
+                        DEArray[i].ModifiedTime = fileReader.ReadInt64();
+                        DEArray[i].StartSectorLoc = fileReader.ReadUInt32();
+                        DEArray[i].StreamSizeV4 = fileReader.ReadUInt64();
+
+                        //вычисляем StreamSizeV3
+                        DEArray[i].StreamSizeV3 = Convert.ToUInt32(DEArray[i].StreamSizeV4);
+                    }
+
+                    //находим номер следующего сектора с directory entry
+                    currentDirSector = FAT[currentDirSector];
+                    curDirSectorOrder++;    //увеличили номер текущего сектора по порядку
                 }
             }
             #endregion
