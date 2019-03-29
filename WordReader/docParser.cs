@@ -51,7 +51,6 @@ namespace WordReader
             private CompoundFileHeader CFHeader;    //Compound file header
             private uint[] DIFAT;                   //entire DIFAT array (from header + from DIFAT sectors)
             private uint[] FAT;                     //FAT array
-            private uint[] miniFAT;                 //miniFAT array (from standart chain from header and FAT)
             #endregion
 
             #region protected internal
@@ -70,7 +69,7 @@ namespace WordReader
                 readCFHeader();
                 readDIFAT();
                 readFAT();
-                readminiFAT();
+                showFCHeader();
             }
             #endregion
 
@@ -245,24 +244,6 @@ namespace WordReader
                     //читаем данные
                     for (int j = i * numEntriesInFAT; j < (i + 1) * numEntriesInFAT; j++)
                         FAT[j] = fileReader.ReadUInt32();
-                }
-            }
-
-            private void readminiFAT()  //чтение полной таблицы miniFAT из CFHeader и FAT
-            {
-                if (CFHeader.NumMiniFATSectors == 0)    //если в файле нет miniFat секторов
-                {
-                    miniFAT = null;
-                    return;
-                }
-
-                miniFAT = new uint[CFHeader.NumMiniFATSectors]; //выделили память под miniFAT
-                uint currentminiFATsector=CFHeader.FirstMiniFATSectorLoc;  //номер текущего сектора miniFAT
-
-                for (int i = 0; i < CFHeader.NumMiniFATSectors; i++)
-                {
-                    miniFAT[i] = currentminiFATsector;  //сохранили номер текущего miniFAT сектора
-                    currentminiFATsector = FAT[currentminiFATsector];   //берем из FAT номер следующего miniFAT сектора
                 }
             }
             #endregion
