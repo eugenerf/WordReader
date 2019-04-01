@@ -112,7 +112,6 @@ namespace WordReader
                 readFAT();
                 readminiFAT();
                 readDEArray();
-
             }
             #endregion
 
@@ -428,6 +427,61 @@ namespace WordReader
                 //идем по Right
                 findInDEArray(DEArray[Id].RightSibling, curPath, Name, ref Paths, ref StreamIds);
             }
+
+            private bool findPathId(uint Id, string Path, out uint foundId)    //поиск Stream Id для заданного пути (вернет true, если найдет)
+            {
+                //если попали в NOSTREAM
+                if (Id == SpecialValues.NOSTREAM)
+                {
+                    foundId = 0;
+                    return false;
+                }
+
+                string curName = DEArray[Id].Name.Substring(0, DEArray[Id].Name.IndexOf('\0')); //имя текущей записи
+                curName = curName.ToUpper();
+
+                int pathPos = Path.IndexOf('\\');   //позиция первого \ в искомом пути
+                //определим имя до первого \ в искомом пути
+                string curPath = "";
+                string nextPath = "";
+                if (pathPos != -1)
+                {
+                    curPath = Path.Substring(0, pathPos);
+                    //nextPath = Path.Substring(pathPos + 1);
+                }
+                else
+                {
+                    curPath = Path;
+                    //nextPath = Path;
+                }
+
+                //проверим текущую запись
+                if (curName.CompareTo(curPath) == 0)    //если она подходит
+                {
+                    if (pathPos == -1)  //текущая запись - та, что мы ищем
+                    {
+                        foundId = Id;
+                        return true;
+                    }
+                    else    //текущая запись - еще не конец поисков
+                    {
+                        nextPath = Path.Substring(pathPos + 1);
+                        //попробуем пройти к ее ребенку
+                        return findPathId(DEArray[Id].Child, nextPath, out foundId);
+                    }
+                }
+
+                nextPath = Path;
+
+                //не нашли пока - идем по дереву
+                uint nextId = 0;
+                if (curPath.Length < DEArray[Id].NameLength / 2) nextId = DEArray[Id].LeftSibling;          //если искомое имя короче текущего, то пойдем влево
+                else if (curPath.Length > DEArray[Id].NameLength / 2) nextId = DEArray[Id].RightSibling;    //если оно длинее, то пойдем вправо
+                else if (curPath.CompareTo(curName) < 0) nextId = DEArray[Id].LeftSibling;              //если искомое имя меньше, то пойдем влево
+                else nextId = DEArray[Id].RightSibling;                                                 //если никакое условие выше не сработало, пойдем вправо
+
+                return findPathId(nextId, nextPath, out foundId);   //пошли, куда выбрали
+            }
             #endregion
 
             #region protected internal
@@ -534,6 +588,11 @@ namespace WordReader
                 }
 
                 return true;    //если поиск удачен
+            }
+
+            protected internal bool getPathId(string Path, out uint Id)  //определить Stream Id в Directory Entry Array для заданного пути (вернет true, если успешно)
+            {
+                return findPathId(0, Path.ToUpper(), out Id);
             }
             #endregion
             #endregion
