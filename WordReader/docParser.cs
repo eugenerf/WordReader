@@ -92,10 +92,11 @@ namespace WordReader
             private uint[] FAT;                     //FAT array
             private uint[] miniFAT;                 //miniFAT array (from standart chain from header and FAT)
             private DirectoryEntry[] DEArray;       //Directory Entry Array
+            private BinaryReader fileReader;        //doc binary reader
             #endregion
 
             #region protected internal
-            BinaryReader fileReader;    //doc binary reader
+
             #endregion
             #endregion
 
