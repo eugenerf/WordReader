@@ -20,6 +20,7 @@ namespace WordReader
                 internal const uint FATSECT = 0xFFFFFFFD;       //Specifies a FAT sector in the FAT
                 internal const uint ENDOFCHAIN = 0xFFFFFFFE;    //End of a linked chain of sectors
                 internal const uint FREESECT = 0xFFFFFFFF;      //Specifies an unallocated sector in the FAT, Mini FAT or DIFAT
+                internal const uint NOSTREAM = 0xFFFFFFFF;      //Terminator or empty pointer if Directory Entry
             }
 
             private struct CompoundFileHeader //Compound File Header structure
@@ -74,6 +75,13 @@ namespace WordReader
                                                 //[8 bytes]                                                
                 internal uint StreamSizeV3;     //NOTE: THIS FIELD IS NOT IN REAL COMPOUND FILE DIRECTORY ENTRY STRUCTURE! I ADDED IT JUST FOR MY OWN CONVENIENCE!
                                                 //Same as StreamSizeV4, but used for version 3 compound files. That is StreamSizeV4 without most significant 32 bits.
+            }            
+
+            private struct FolderTreeEntry //структура записи для стека отображения дерева папок
+            {
+                internal int TreeLevel; //уровень в дереве (у RootEntry равен 0, далее каждый проход по Child добавляет 1)
+                internal string Name;   //имя записи
+                internal string Parent; //имя родителя
             }
             #endregion
 
@@ -104,6 +112,7 @@ namespace WordReader
                 readFAT();
                 readminiFAT();
                 readDEArray();
+                showFolderTree();
             }
             #endregion
 
@@ -336,10 +345,107 @@ namespace WordReader
                     curDirSectorOrder++;    //увеличили номер текущего сектора по порядку
                 }
             }
+
+            private void buildFolderTree(uint Id, ref FolderTreeEntry[] FTE) //строим дерево папок для вывода на экран
+                                                                         //Id - номер текущей записи Directory Entry
+                                                                         //FTE - массив с деревом папок
+            {
+                //возврат, если попали в NOSTREAM
+                if (Id == SpecialValues.NOSTREAM) return;
+
+                //заполнение имени текущей записи
+                int curFTE = FTE.Length - 1;
+                FTE[curFTE].Name = DEArray[Id].Name.Substring(0, DEArray[Id].Name.IndexOf('\0'));
+                FTE[curFTE].Name += (DEArray[Id].ObjectType == 0x00) ? " <unknown>" : "";
+                FTE[curFTE].Name += (DEArray[Id].ObjectType == 0x01) ? " <storage>" : "";
+                FTE[curFTE].Name += (DEArray[Id].ObjectType == 0x02) ? " <stream>" : "";
+
+                //идем по Child, если он есть
+                if (DEArray[Id].Child != SpecialValues.NOSTREAM)
+                {
+                    //перевыделим память и заполним данные по Child
+                    Array.Resize(ref FTE, FTE.Length + 1);
+                    FTE[FTE.Length - 1].TreeLevel = FTE[curFTE].TreeLevel + 1;
+                    FTE[FTE.Length - 1].Parent = FTE[curFTE].Name;
+                    buildFolderTree(DEArray[Id].Child, ref FTE);
+                }
+
+                //идем по Left, если он есть
+                if (DEArray[Id].LeftSibling != SpecialValues.NOSTREAM)
+                {
+                    //перевыделим память и заполним данные по Left
+                    Array.Resize(ref FTE, FTE.Length + 1);
+                    FTE[FTE.Length - 1].TreeLevel = FTE[curFTE].TreeLevel;
+                    FTE[FTE.Length - 1].Parent = FTE[curFTE].Parent;
+                    buildFolderTree(DEArray[Id].LeftSibling, ref FTE);
+                }
+
+                //идем по Right, если он есть
+                if (DEArray[Id].RightSibling != SpecialValues.NOSTREAM)
+                {
+                    //перевыделим память и заполним данные по Right
+                    Array.Resize(ref FTE, FTE.Length + 1);
+                    FTE[FTE.Length - 1].TreeLevel = FTE[curFTE].TreeLevel;
+                    FTE[FTE.Length - 1].Parent = FTE[curFTE].Parent;
+                    buildFolderTree(DEArray[Id].RightSibling, ref FTE);
+                }
+            }
             #endregion
 
             #region protected internal
+            protected internal void showFolderTree()    //отобразить дерево папок
+            {
+                //выделили память и заполнили данные по Root Entry и ее Child
+                FolderTreeEntry[] FTE = new FolderTreeEntry[2];
+                FTE[0].TreeLevel = 0;
+                FTE[0].Name = DEArray[0].Name.Substring(0, DEArray[0].Name.IndexOf('\0'));
+                FTE[0].Name += " <root storage>";
+                FTE[1].Parent = FTE[0].Name;
+                FTE[1].TreeLevel = 1;
 
+                //идем по дереву
+                buildFolderTree(DEArray[0].Child, ref FTE);
+
+                //---==вывод дерева папок на экран
+                //отобразим заголовок с именем открытого файла
+                FileStream fs = (FileStream)fileReader.BaseStream;
+                Console.Clear();
+                Console.WriteLine("Folder Tree of " + fs.Name);
+                Console.WriteLine();
+
+                //отобразим записи
+                Console.WriteLine(FTE[0].Name);
+                for (int i = 1; i < FTE.Length; i++)
+                {
+                    //---==псевдографику нарисуем
+                    for (int l = 1; l < FTE[i].TreeLevel; l++)
+                    {
+                        int j = 0;
+                        for (j = i + 1; j < FTE.Length; j++)
+                        {
+                            if (FTE[j].TreeLevel == l)
+                            {
+                                Console.Write("│ ");
+                                break;
+                            }
+                        }
+                        if (j == FTE.Length) Console.Write("  ");
+                    }
+
+                    bool hasSiblingsFurther = false;
+                    for (int j = i + 1; j < FTE.Length; j++)
+                        if (FTE[j].Parent.CompareTo(FTE[i].Parent) == 0)
+                        {
+                            hasSiblingsFurther = true;
+                            break;
+                        }
+                    if (hasSiblingsFurther) Console.Write("├─");
+                    else Console.Write("└─");
+
+                    //отобразим запись
+                    Console.WriteLine(FTE[i].Name);
+                }
+            }
             #endregion
             #endregion
         }

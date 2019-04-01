@@ -11,7 +11,7 @@ namespace WordReader
     {
         static void Main(string[] args)
         {
-            docParser dp = new docParser("test3.doc");
+            docParser dp = new docParser("test1.doc");
 
             Console.WriteLine("Any key to exit...");
             Console.ReadKey(true);
