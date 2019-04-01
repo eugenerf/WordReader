@@ -112,7 +112,7 @@ namespace WordReader
                 readFAT();
                 readminiFAT();
                 readDEArray();
-                
+
             }
             #endregion
 
@@ -390,6 +390,44 @@ namespace WordReader
                     buildFolderTree(DEArray[Id].RightSibling, ref FTE);
                 }
             }
+
+            private void findInDEArray(uint Id,string curPath, string Name, ref string[] Paths, ref uint[] StreamIds)  //поиск потока в файле по заданному имени Name
+                //в Paths положит массив путей до найденных потоков (или null, если ничего не нашел)
+                //в StreamIds положит StreamId найденных потоков, или null, если ничего не нашел
+                //Id - Id текущей записи в DEArray
+                //curPath - на данный момент собираемый путь
+            {
+                if (Id == SpecialValues.NOSTREAM) return;   //если попали в NOSTREAM
+
+                //проверяем текущую Directory Entry
+                string curName = DEArray[Id].Name.Substring(0, DEArray[Id].Name.IndexOf('\0'));
+                if (curName.CompareTo(Name) == 0)  //если имена совпадают (нашли)
+                {
+                    //---==StreamId
+                    //перевыделим память
+                    if (StreamIds == null) StreamIds = new uint[1];
+                    else Array.Resize(ref StreamIds, StreamIds.Length + 1);
+                    //сохраним найденный Id
+                    StreamIds[StreamIds.Length - 1] = Id;
+
+                    //---==Path
+                    //перевыделим память
+                    if (Paths == null) Paths = new string[1];
+                    else Array.Resize(ref Paths, Paths.Length + 1);
+                    //сохраним найденный Path
+                    Paths[Paths.Length - 1] = curPath + "\\" + curName;
+                }
+
+                //идем по Child
+                string newPath = curPath + "\\" + curName;
+                findInDEArray(DEArray[Id].Child, newPath, Name, ref Paths, ref StreamIds);
+
+                //идем по Left
+                findInDEArray(DEArray[Id].LeftSibling, curPath, Name, ref Paths, ref StreamIds);
+
+                //идем по Right
+                findInDEArray(DEArray[Id].RightSibling, curPath, Name, ref Paths, ref StreamIds);
+            }
             #endregion
 
             #region protected internal
@@ -447,6 +485,55 @@ namespace WordReader
                 }
 
                 Console.WriteLine();
+            }
+
+            protected internal bool findStream(string Name, ref string[] Paths, ref uint[] StreamIds)    //поиск потока в файле по заданному имени Name
+                //в Paths положит массив путей до найденных потоков (или null, если ничего не нашел)
+                //в StreamIds положит StreamId найденных потоков, или null, если ничего не нашел
+                //вернет true, если поток найден, или false, если нет
+            {
+                findInDEArray(0, "", Name, ref Paths, ref StreamIds);   //ищем
+
+                if (Paths == null || StreamIds == null) //если поиск неудачен
+                {
+                    Paths = null;
+                    StreamIds = null;
+                    return false;
+                }
+
+                if(Paths.Length!=StreamIds.Length)  //если результат поиска неадекватен
+                {
+                    Paths = null;
+                    StreamIds = null;
+                    return false;
+                }
+
+                return true;    //если поиск удачен
+            }
+
+            protected internal bool findStream(string Name, ref string[] Paths)    //поиск потока в файле по заданному имени Name
+                //в Paths положит массив путей до найденных потоков (или null, если ничего не нашел)
+                //вернет true, если поток найден, или false, если нет
+            {
+                uint[] StreamIds = null;
+
+                findInDEArray(0,"", Name, ref Paths, ref StreamIds);   //ищем
+
+                if (Paths == null || StreamIds == null) //если поиск неудачен
+                {
+                    Paths = null;
+                    StreamIds = null;
+                    return false;
+                }
+
+                if (Paths.Length != StreamIds.Length)  //если результат поиска неадекватен
+                {
+                    Paths = null;
+                    StreamIds = null;
+                    return false;
+                }
+
+                return true;    //если поиск удачен
             }
             #endregion
             #endregion
