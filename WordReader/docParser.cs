@@ -112,7 +112,7 @@ namespace WordReader
                 readFAT();
                 readminiFAT();
                 readDEArray();
-                showFolderTree();
+                
             }
             #endregion
 
@@ -445,6 +445,8 @@ namespace WordReader
                     //отобразим запись
                     Console.WriteLine(FTE[i].Name);
                 }
+
+                Console.WriteLine();
             }
             #endregion
             #endregion
