@@ -75,7 +75,7 @@ namespace WordReader
                                                 //[8 bytes]                                                
                 internal uint StreamSizeV3;     //NOTE: THIS FIELD IS NOT IN REAL COMPOUND FILE DIRECTORY ENTRY STRUCTURE! I ADDED IT JUST FOR MY OWN CONVENIENCE!
                                                 //Same as StreamSizeV4, but used for version 3 compound files. That is StreamSizeV4 without most significant 32 bits.
-            }            
+            }
 
             private struct FolderTreeEntry //структура записи для стека отображения дерева папок
             {
@@ -147,31 +147,29 @@ namespace WordReader
                 showBytesInHEX(Output, "Compound file header", "end of header");
             }
 
-            private void showBytesInHEX(byte[] Output,string title="",string ending="") //вывод байтового массива в виде HEX
-                                                                                        //title - заголовок перед выводом, ending - строка после вывода
+            private void showBytesInHEX(byte[] Output, string title = "", string ending = "") //вывод байтового массива в виде HEX
+                                                                                              //title - заголовок перед выводом, ending - строка после вывода
             {
-                int row = 0;
-                int byteNumber = 0;
-                Console.WriteLine("\t" + title);
-                Console.Write($"{byteNumber:X6}: ");
-                foreach (byte o in Output)
+                int byteNumber = 0; //кол-во выведенных байт
+                Console.WriteLine("\t" + title);    //заголовок
+                Console.Write($"{byteNumber:X6}: ");    //номер первого байта в текущей строке
+                foreach (byte o in Output)  //побежали по всем байтам
                 {
                     if (byteNumber != 0 && (byteNumber % 16) == 0)  //вывели 16 байт
                     {
-                        Console.WriteLine();
-                        row++;
-                        Console.Write($"{byteNumber:X6}: ");
+                        Console.WriteLine();    //начнем новую строку
+                        Console.Write($"{byteNumber:X6}: ");    //в следующей строке выведем номер первого байта
                     }
-                    Console.Write($"{o:X2}");
-                    byteNumber++;
-                    if (byteNumber % 2 == 0) Console.Write(" ");
+                    Console.Write($"{o:X2}");   //выведем текущий байт
+                    byteNumber++;       //увеличим счетчик выведенных байт
+                    if (byteNumber % 2 == 0) Console.Write(" ");    //через каждые два байта выводим пробел
                 }
 
-                Console.WriteLine("\n\t" + ending);
+                Console.WriteLine("\n\t" + ending); //строка после вывода
             }
 
             private bool readCFHeader() //читает Compound file header из fileReader и проверяет его на адекватность
-                //вернет true, если заголовок без ошибок
+                                        //вернет true, если Compound file header без ошибок
             {
                 fileReader.BaseStream.Seek(0, SeekOrigin.Begin);    //перемотка на начало файла
 
@@ -196,8 +194,7 @@ namespace WordReader
 
                 CFHeader.DIFAT = new uint[109];
                 for (int i = 0; i < 109; i++) CFHeader.DIFAT[i] = fileReader.ReadUInt32();
-
-                //проверяем на ошибки
+                                
                 //эталонные (MUST) значения полей заголовка
                 byte[] signature = { 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1 };
                 byte[] minorVersion = { 0x3E, 0x00 };
@@ -206,6 +203,7 @@ namespace WordReader
                 byte[][] sectorShift = { new byte[] { 0x09, 0x00 }, new byte[] { 0x0C, 0x00 } };
                 byte[] miniSectorShift = { 0x06, 0x00 };
 
+                //проверяем на ошибки
                 if (!CFHeader.Signature.SequenceEqual(signature)) return false;
                 if (!CFHeader.CLSID.SequenceEqual(new byte[16])) return false;
                 if (!CFHeader.MinorVersion.SequenceEqual(minorVersion)) return false;
@@ -220,7 +218,7 @@ namespace WordReader
                 if (!(CFHeader.NumDirSectors == 0 && CFHeader.MajorVersion.SequenceEqual(majorVersion[0]))) return false;
                 if (!(CFHeader.MiniStreamCutoffSize == 4096)) return false;
 
-                return true;
+                return true;    //ошибок не обнаружено
             }
 
             private void readDIFAT()    //читаем полный массив DIFAT из fileReader
@@ -295,13 +293,24 @@ namespace WordReader
                     return;
                 }
 
-                miniFAT = new uint[CFHeader.NumMiniFATSectors]; //выделили память под miniFAT
-                uint currentminiFATsector=CFHeader.FirstMiniFATSectorLoc;  //номер текущего сектора miniFAT
+                uint sectorSize = (uint)Math.Pow(2, BitConverter.ToUInt16(CFHeader.SectorShift, 0));    //размер сектора в файле
+                uint miniFATSectorSize = (uint)Math.Pow(2, BitConverter.ToUInt16(CFHeader.MiniSectorShift, 0));    //размер сектора в miniStream
+                uint mfEntriesPerSector = sectorSize / 4;   //кол-во записей miniFAT в одном секторе файла
+                uint numMiniFATEntries = CFHeader.NumMiniFATSectors * mfEntriesPerSector;    //кол-во всех записей в miniFAT
+                miniFAT = new uint[numMiniFATEntries]; //выделили память под miniFAT
+                uint currentminiFATsector = CFHeader.FirstMiniFATSectorLoc;  //номер текущего сектора miniFAT
+                int posInMiniFAT = 0;   //текущее положение в массиве miniFAT
 
-                for (int i = 0; i < CFHeader.NumMiniFATSectors; i++)
+                while (currentminiFATsector != SpecialValues.ENDOFCHAIN)    //пока не достигли конца цепочки FAT секторов
                 {
-                    miniFAT[i] = currentminiFATsector;  //сохранили номер текущего miniFAT сектора
-                    currentminiFATsector = FAT[currentminiFATsector];   //берем из FAT номер следующего miniFAT сектора
+                    uint fileOffset = (currentminiFATsector + 1) * sectorSize;  //положение текущего сектора в файле
+                    fileReader.BaseStream.Seek(fileOffset, SeekOrigin.Begin);   //перемотали файл
+                    byte[] readSector = fileReader.ReadBytes((int)sectorSize);  //прочитали текущий сектор
+                    MemoryStream ms = new MemoryStream(readSector); //сделали из прочитанного сектора MemoryStream
+                    BinaryReader br = new BinaryReader(ms);     //создали читалку для прочитанного сектора
+                    for (int i = 0; i < mfEntriesPerSector; i++) miniFAT[posInMiniFAT + i] = br.ReadUInt32();   //читаем записи miniFAT из MemoryStream
+                    posInMiniFAT += (int)mfEntriesPerSector;    //увеличили текущее положение в массиве miniFAT
+                    currentminiFATsector = FAT[currentminiFATsector];   //перешли к следующему сектору
                 }
             }
 
@@ -347,8 +356,8 @@ namespace WordReader
             }
 
             private void buildFolderTree(uint Id, ref FolderTreeEntry[] FTE) //строим дерево папок для вывода на экран
-                                                                         //Id - номер текущей записи Directory Entry
-                                                                         //FTE - массив с деревом папок
+                                                                             //Id - номер текущей записи Directory Entry
+                                                                             //FTE - массив с деревом папок
             {
                 //возврат, если попали в NOSTREAM
                 if (Id == SpecialValues.NOSTREAM) return;
@@ -391,11 +400,11 @@ namespace WordReader
                 }
             }
 
-            private void findInDEArray(uint Id,string curPath, string Name, ref string[] Paths, ref uint[] StreamIds)  //поиск потока в файле по заданному имени Name
-                //в Paths положит массив путей до найденных потоков (или null, если ничего не нашел)
-                //в StreamIds положит StreamId найденных потоков, или null, если ничего не нашел
-                //Id - Id текущей записи в DEArray
-                //curPath - на данный момент собираемый путь
+            private void findInDEArray(uint Id, string curPath, string Name, ref string[] Paths, ref uint[] StreamIds)  //поиск потока в файле по заданному имени Name
+                                                                                                                        //в Paths положит массив путей до найденных потоков (или null, если ничего не нашел)
+                                                                                                                        //в StreamIds положит StreamId найденных потоков, или null, если ничего не нашел
+                                                                                                                        //Id - Id текущей записи в DEArray
+                                                                                                                        //curPath - на данный момент собираемый путь
             {
                 if (Id == SpecialValues.NOSTREAM) return;   //если попали в NOSTREAM
 
@@ -543,9 +552,9 @@ namespace WordReader
             }
 
             protected internal bool findStream(string Name, ref string[] Paths, ref uint[] StreamIds)    //поиск потока в файле по заданному имени Name
-                //в Paths положит массив путей до найденных потоков (или null, если ничего не нашел)
-                //в StreamIds положит StreamId найденных потоков, или null, если ничего не нашел
-                //вернет true, если поток найден, или false, если нет
+                                                                                                         //в Paths положит массив путей до найденных потоков (или null, если ничего не нашел)
+                                                                                                         //в StreamIds положит StreamId найденных потоков, или null, если ничего не нашел
+                                                                                                         //вернет true, если поток найден, или false, если нет
             {
                 findInDEArray(0, "", Name, ref Paths, ref StreamIds);   //ищем
 
@@ -556,7 +565,7 @@ namespace WordReader
                     return false;
                 }
 
-                if(Paths.Length!=StreamIds.Length)  //если результат поиска неадекватен
+                if (Paths.Length != StreamIds.Length)  //если результат поиска неадекватен
                 {
                     Paths = null;
                     StreamIds = null;
@@ -567,12 +576,12 @@ namespace WordReader
             }
 
             protected internal bool findStream(string Name, ref string[] Paths)    //поиск потока в файле по заданному имени Name
-                //в Paths положит массив путей до найденных потоков (или null, если ничего не нашел)
-                //вернет true, если поток найден, или false, если нет
+                                                                                   //в Paths положит массив путей до найденных потоков (или null, если ничего не нашел)
+                                                                                   //вернет true, если поток найден, или false, если нет
             {
                 uint[] StreamIds = null;
 
-                findInDEArray(0,"", Name, ref Paths, ref StreamIds);   //ищем
+                findInDEArray(0, "", Name, ref Paths, ref StreamIds);   //ищем
 
                 if (Paths == null || StreamIds == null) //если поиск неудачен
                 {
@@ -595,6 +604,114 @@ namespace WordReader
             {
                 return findPathId(0, Path.ToUpper(), out Id);
             }
+
+            protected internal MemoryStream getStream(uint Id)  //получить из файла поток для чтения по его Stream ID (вернет null, если такого потока нет)
+            {
+                if (DEArray[Id].ObjectType == 0x00 || DEArray[Id].ObjectType == 0x01) return null;  //если заданный объект имеет тип unknown или storage, вернем null
+                
+                byte[] byteStream = null;   //поток в виде байтового массива
+                MemoryStream memStream;     //поток в виде MemoryStream
+                
+                switch (DEArray[Id].ObjectType)  //все зависит от того, какого типа объект задан
+                {
+                    case 0x00:  //type: unknown OR unallocated
+                        return null;
+                    case 0x01:  //type: storage
+                        return null;
+                    case 0x02:  //type: stream
+                        //найдем размер текущего потока
+                        ulong streamSize = (CFHeader.MajorVersion.SequenceEqual(new byte[] { 0x04, 0x00 })) ? DEArray[Id].StreamSizeV4 : DEArray[Id].StreamSizeV3;
+                        byteStream = new byte[streamSize];  //выделили память под данные
+
+                        //---==читаем ИЗ ФАЙЛА
+                        //определим интересующий нас поток В ФАЙЛЕ
+                        //(если размер потока больше отсечки для miniStream, то читать данные будем из FAT секторов,
+                        // если он меньше, то из файла прочитаем miniStream, а уже из miniStream потом прочитаем данные)
+                        uint readId = (streamSize >= CFHeader.MiniStreamCutoffSize) ? Id : 0;
+                        //найдем первый сектор В ФАЙЛЕ
+                        uint curSector = DEArray[readId].StartSectorLoc;
+                        uint sectorSize = (uint)Math.Pow(2, BitConverter.ToUInt16(CFHeader.SectorShift, 0));    //размер сектора в файле
+                        //найдем размер потока, который будем читать из файла
+                        ulong fileBufferSize = (CFHeader.MajorVersion.SequenceEqual(new byte[] { 0x04, 0x00 })) ? DEArray[readId].StreamSizeV4 : DEArray[readId].StreamSizeV3;
+                        byte[] fileBuffer = new byte[fileBufferSize];   //считанные из файла данные
+                        byte[] readSector = new byte[sectorSize];   //текущий прочитанный из файла сектор
+                        int posInArray = 0;    //текущее положение в массиве fileBuffer
+                        //читаем из файла
+                        while (curSector != SpecialValues.ENDOFCHAIN)   //пока не достигнем конца цепочки секторов
+                        {
+                            uint fileOffset = (curSector + 1) * sectorSize; //положение текущего сектора в файле
+                            fileReader.BaseStream.Seek(fileOffset, SeekOrigin.Begin);   //нашли нужный сектор в файле
+                            readSector = fileReader.ReadBytes((int)sectorSize); //считали сектор из файла
+                            curSector = FAT[curSector];     //нашли следующий сектор
+                            if (curSector == SpecialValues.ENDOFCHAIN) //если текущий сектор последний
+                            {
+                                int numLastBytes = (int)Math.IEEERemainder(fileBufferSize, sectorSize); //кол-во использованных под поток байт в последнем секторе
+                                readSector.Take(numLastBytes).ToArray().CopyTo(fileBuffer, posInArray); //перенесли только использованные байты в fileBuffer
+                                posInArray += numLastBytes; //увеличили счетчик положения в fileBuffer
+                            }
+                            else                                        //если текущий сектор не последний
+                            {
+                                readSector.CopyTo(fileBuffer, posInArray);  //перенесли весь сектор в fileBuffer
+                                posInArray += (int)sectorSize;  //увеличили счетчик положения в fileBuffer
+
+                            }
+                        }
+
+                        if (streamSize >= CFHeader.MiniStreamCutoffSize)   //если размер потока больше отсечки для miniStream
+                        {
+                            //то прочитанные в fileBuffer данные - те, которые были запрошены
+                            fileBuffer.CopyTo(byteStream, 0);   //просто перенесем их в поток
+                        }
+                        else                                                //если размер потока меньше отсечки для miniStream
+                        {
+                            //то из файла мы прочитали только miniStream
+                            //а теперь из miniStream прочитаем запрощенные данные
+                            MemoryStream miniStream = new MemoryStream(fileBuffer); //создали из прочитанных из файла данных поток в памяти
+                            BinaryReader brMiniStream = new BinaryReader(miniStream);   //создали читальщик двоичных данных из нового потока
+
+                            curSector = DEArray[Id].StartSectorLoc; //первый сектор с запроошенными данными в miniStream 
+                            sectorSize = (uint)Math.Pow(2, BitConverter.ToUInt16(CFHeader.MiniSectorShift, 0));    //размер сектора в miniStream
+                            Array.Resize(ref readSector, (int)sectorSize);  //перевыделили память под текущий считанный из miniStream сектор
+                            posInArray = 0; //позиция в byteStream;
+                            //читаем из miniStream
+                            while (curSector != SpecialValues.ENDOFCHAIN)   //пока не достигнем конца цепочки секторов
+                            {
+                                uint msOffset = (curSector + 1) * sectorSize; //положение текущего сектора в miniStream
+                                miniStream.Seek(msOffset, SeekOrigin.Begin);   //нашли нужный сектор в miniStream
+                                readSector = brMiniStream.ReadBytes((int)sectorSize); //считали сектор из miniStream
+                                curSector = miniFAT[curSector];     //нашли следующий сектор
+                                if (curSector == SpecialValues.ENDOFCHAIN) //если текущий сектор последний
+                                {
+                                    int numLastBytes = (int)Math.IEEERemainder(streamSize, sectorSize); //кол-во использованных под поток байт в последнем секторе
+                                    readSector.Take(numLastBytes).ToArray().CopyTo(byteStream, posInArray); //перенесли только использованные байты в byteStream
+                                    posInArray += numLastBytes; //увеличили счетчик положения в byteStream
+                                }
+                                else                                        //если текущий сектор не последний
+                                {
+                                    readSector.CopyTo(byteStream, posInArray);  //перенесли весь сектор в byteStream
+                                    posInArray += (int)sectorSize;  //увеличили счетчик положения в byteStream
+
+                                }
+                            }
+                        }
+                        break;
+                    case 0x05:  //type: root storage                        
+                        return null;
+                    default:    //unknown type
+                        return null;
+                }
+
+                //создадим memStream из byteStream и вернем его из метода
+                memStream = new MemoryStream(byteStream);
+                return memStream;
+            }
+
+            protected internal MemoryStream getStream(string Path)  //получить из файла поток для чтения по его пути (вернет null, если такого потока нет)
+            {
+                uint Id;
+                if (getPathId(Path, out Id)) return getStream(Id);  //если нашли заданный поток, вернем его MemoryStream
+                return null;    //если не нашли, вернем null
+            }
             #endregion
             #endregion
         }
@@ -611,7 +728,7 @@ namespace WordReader
         #endregion
 
         #region Свойства
-
+    
         #endregion
 
         #region Конструкторы
