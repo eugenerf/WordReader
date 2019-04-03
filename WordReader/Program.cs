@@ -11,17 +11,10 @@ namespace WordReader
     {
         static void Main(string[] args)
         {
-            docParser dp = new docParser("test2.doc");
+            docParser dp = new docParser("test3.doc");
 
             Console.WriteLine("Any key to exit...");
             Console.ReadKey(true);
-        }
-
-        static void ShowBytes(byte[] Src)
-        {
-            foreach (byte s in Src)
-                Console.Write($"{s:X2}");
-            Console.WriteLine();
         }
     }
 }
