@@ -969,6 +969,37 @@ namespace WordReader
             /// An FcCompressed structure that specifies the location of the text in the WordDocument stream
             /// </summary>
             internal FcCompressed fc;
+
+            /// <summary>
+            /// Prm structure. Either Prm0 (if fComplex = false) or Prm1 (if fComplex = true) [2 bytes]
+            /// </summary>
+            internal Prm prm;
+
+            /// <summary>
+            /// Prm structure. Either Prm0 (if fComplex = false) or Prm1 (if fComplex = true) [2 bytes]
+            /// </summary>
+            internal struct Prm
+            {
+                /// <summary>
+                /// Bit that specifies what is the type of this Prm: 0 or 1 [1 bit]
+                /// </summary>
+                internal bool fComplex;
+
+                /// <summary>
+                /// Part of Prm0 structure. Specifies the Sprm to apply to the document [7 bits]
+                /// </summary>
+                internal byte Prm0_isprm;
+
+                /// <summary>
+                /// Part of Prm0 structure. Operand for the Sprm specified by isprm [1 byte]
+                /// </summary>
+                internal byte Prm0_val;
+
+                /// <summary>
+                /// Part of Prm1 structure. Zero-based index of a Prc in ClxRgPrc [15 bits]
+                /// </summary>
+                internal ushort Prm1_igrpprl;
+            }
         }
 
         /// <summary>
@@ -1219,8 +1250,30 @@ namespace WordReader
                 aPcd[i].fc.fc = brPlcPsd.ReadUInt32();                          //{Clx.Pcdt.PlcPcd.aPcd.FcCompressed.fc} Offset in the WordDocument where text starts [off.: variable; len.: 30 bits]
                 aPcd[i].fc.fCompressed = checkBit(aPcd[i].fc.fc, 30);           //{Clx.Pcdt.PlcPcd.aPcd.FcCompressed.fCompressed bit 30 (A)} Specifies whether the text is compressed [off.: variable; len.: 1 bit]
                 aPcd[i].fc.fc &= 0x3FFFFFFF;                                    //use bitwise and to set bits 30 and 31 to 0 (because they are not for fc in FcCompressed)
-                msPlcPcd.Seek(2, SeekOrigin.Current);
+                aPcd[i].prm.Prm0_isprm = brPlcPsd.ReadByte();                   //read first byte of Prm structure, which may be:
+                                                                                //{Clx.Pcdt.PlcPcd.aPcd.Prm0.isprm} Specifies the Sprm to apply [off.: variable; len.: 7 bits]
+                aPcd[i].prm.fComplex = checkBit(aPcd[i].prm.Prm0_isprm, 0);     //{Clx.Pcdt.PlcPcd.aPcd.Prm.fComplex} Bit that specifies which Prm to use for the current Pcd [off.: variable; len.: 1 bit]
+                if (aPcd[i].prm.fComplex)                                       //fComplex = 1 - we'll use Prm1
+                {
+                    msPlcPcd.Seek(-1, SeekOrigin.Current);                      //seek -1 byte from current (to begin reading Prm1)
+                    aPcd[i].prm.Prm1_igrpprl = brPlcPsd.ReadUInt16();           //{Clx.Pcdt.PlcPcd.aPcd.Prm1.igrpprl} Zero-based index of a Prc in Clx.RgPrc [off.: variable; len.: 15 bits]
+                    aPcd[i].prm.Prm1_igrpprl >>= 1;                             //shift igrpprl 1 bit to the left (that bit is fComplex - bit 0)
+                    aPcd[i].prm.Prm0_isprm = 0;                                 //set Prm0.isprm to zero just for case
+                    aPcd[i].prm.Prm0_val = 0;                                   //set Prm0.val to zero just for case
+                }
+                else                                                            //fComplex =0 - we'll use Prm0
+                {
+                    aPcd[i].prm.Prm0_isprm >>= 1;                               //shift isprm 1 bit to the left (that bit is fComplex - bit 0)
+                    aPcd[i].prm.Prm0_val = brPlcPsd.ReadByte();                 //{Clx.Pcdt.PlcPcd.aPcd.Prm0.val} Operand for the Sprm specified by isprm [off.: variable; len.: 8 bits]
+                }
             }
+
+            //read PlcBteChpx from the TableStream
+            WDStream.Seek(250, SeekOrigin.Begin);                               //seek WDStream to the offset of fcPlcfBteChpx
+            uint fcPlcfBteChpx = brWDStream.ReadUInt32();                       //{Fib.FibRgFcLcb97.fcPlcfBteChpx} Offset of PlcBteChpx in the Table stream [off.: 250;len.: 4 bytes]
+            uint lcbPlcfBteChpx = brWDStream.ReadUInt32();                      //{Fib.FibRgFcLcb97.lcbPlcfBteChpx} Size in bytes of PlcBteChpx in the Table Stream [off.: 254;len.: 4 bytes]
+            TableStream.Seek(fcPlcfBteChpx, SeekOrigin.Begin);                  //seek TableStream to the offset of PlcBteChpx
+            byte[] PlcBteChpx = brTableStream.ReadBytes((int)lcbPlcfBteChpx);   //read PlcBteChpx from the Table stream
 
             //reading text from WordDocument stream
             //
