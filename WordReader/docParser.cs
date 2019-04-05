@@ -1092,6 +1092,28 @@ namespace WordReader
 
             return false;                                                                       //if we came here we assume the file is not a Word Binary File
         }
+
+        /// <summary>
+        /// Checks specified bit in specified number
+        /// </summary>
+        /// <param name="op">Number where to check bit</param>
+        /// <param name="bit">Bit to be checked starting from 0</param>
+        /// <returns>TRUE if bit is 1, FALSE if bit is 0</returns>
+        private bool checkBit(uint op, int bit)
+        {
+            return ((op & (1 << bit)) == 0) ? false : true;
+        }
+
+        /// <summary>
+        /// Checks specified bit in specified number
+        /// </summary>
+        /// <param name="op">Number where to check bit</param>
+        /// <param name="bit">Bit to be checked starting from 0</param>
+        /// <returns>TRUE if bit is 1, FALSE if bit is 0</returns>
+        private bool checkBit(byte op, int bit)
+        {
+            return ((op & (1 << bit)) == 0) ? false : true;
+        }
         #endregion
 
         #region protected internal
@@ -1143,7 +1165,7 @@ namespace WordReader
                 byte[] AtoM = null;                                                             //{WD.FIB.FibBase.A-M} Bit-field that specifies a lot of stuff [off.: 10; len.: 2 bytes]
                 WDStream.Seek(10, SeekOrigin.Begin);                                            //seek WDStream to the offset of bitsAtoM
                 AtoM = brWDStream.ReadBytes(2);                                                 //read 2 bytes from WDStream
-                bool fWhichTblStm = ((AtoM[0] & 0x40) == 0) ? false : true;                     //{WD.FIB.FibBase.fWhichTblStm (bit 6 (G) of AtoM)}.
+                bool fWhichTblStm = checkBit(AtoM[0], 6);                                       //{WD.FIB.FibBase.fWhichTblStm (bit 6 (G) of AtoM)}.
                                                                                                 //Specifies the Table stream to which the FIB refers (true - 1Table, false - 0Table)
 
                 //now we will generate path to the Table stream and read it from CFB
@@ -1194,18 +1216,9 @@ namespace WordReader
             for (int i = 0; i < aPcd?.Length; i++)                                              //read aPcd from PlcPcd
             {
                 msPlcPcd.Seek(2, SeekOrigin.Current);                           //seek 2 bytes from current (to skip data that we do not need)
-                                                                                //byte[] readBytes = brPlcPsd.ReadBytes(4);                       //read 4 bytes from PlcPcd (that is FcCompressed structure)
-                                                                                //aPcd[i].fc.fc = BitConverter.ToUInt32(readBytes, 0);            //take them as uint to FcCompressed.fc
-                                                                                //aPcd[i].fc.fc = aPcd[i].fc.fc & 0x3FFFFFFF;                     //use bitwise and to set bits 30 and 31 to 0 (because they are not for fc in FcCompressed)
-                                                                                //aPcd[i].fc.fCompressed = ((readBytes[3] & 0x40000000) == 0) ?   //check bit 30 in readBytes (it is FcCompressed.fCompressed)
-                                                                                //false :                                                     //if it equals 0 fCompressed if false
-                                                                                //true;                                                       //if it equals 1 fCompressed if true
-                aPcd[i].fc.fc = brPlcPsd.ReadUInt32();
-                aPcd[i].fc.fCompressed = ((aPcd[i].fc.fc & 0x40000000) == 0) ?
-                    false :
-                    true;
-                aPcd[i].fc.fc &= 0x3FFFFFFF;
-
+                aPcd[i].fc.fc = brPlcPsd.ReadUInt32();                          //{Clx.Pcdt.PlcPcd.aPcd.FcCompressed.fc} Offset in the WordDocument where text starts [off.: variable; len.: 30 bits]
+                aPcd[i].fc.fCompressed = checkBit(aPcd[i].fc.fc, 30);           //{Clx.Pcdt.PlcPcd.aPcd.FcCompressed.fCompressed bit 30 (A)} Specifies whether the text is compressed [off.: variable; len.: 1 bit]
+                aPcd[i].fc.fc &= 0x3FFFFFFF;                                    //use bitwise and to set bits 30 and 31 to 0 (because they are not for fc in FcCompressed)
                 msPlcPcd.Seek(2, SeekOrigin.Current);
             }
 
