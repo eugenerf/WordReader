@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -10,13 +11,13 @@ namespace WordReader
 {
     class docParser
     {
-        #region Подклассы
+        #region Classes
         /// <summary>
         /// OLE Compound File Binary class
         /// </summary>
         private class CompoundFileBinary
         {
-            #region Структуры
+            #region Structures
             /// <summary>
             /// Reserved special values
             /// </summary>
@@ -218,7 +219,7 @@ namespace WordReader
             }
             #endregion
 
-            #region Поля
+            #region Fields
             #region private
             private CompoundFileHeader CFHeader;    //Compound file header
             private uint[] DIFAT;                   //entire DIFAT array (from header + from DIFAT sectors)
@@ -236,7 +237,7 @@ namespace WordReader
             #endregion
             #endregion
 
-            #region Конструкторы
+            #region Constructors
             /// <summary>
             /// Class constructor
             /// </summary>
@@ -252,7 +253,7 @@ namespace WordReader
             }
             #endregion
 
-            #region Методы
+            #region Methods
             #region private            
             /// <summary>
             /// Outputs Compound File Header to the console
@@ -612,7 +613,9 @@ namespace WordReader
                 }
 
                 //go to Child
-                string newPath = curPath + "\\" + curName;
+                string newPath = curPath;
+                newPath += (newPath == "") ? "" : "\\";
+                newPath += curName;
                 findInDEArray(Name, ref Paths, ref StreamIds, DEArray[Id].Child, newPath);
 
                 //go to Left Sibling
@@ -913,12 +916,90 @@ namespace WordReader
             #endregion
             #endregion
         }
+
+        /// <summary>
+        /// Mapped to Unicode values for FcCompressed structure
+        /// </summary>
+        private static class MappedToUnicode
+        {
+            internal static Dictionary<byte, char> values = new Dictionary<byte, char>();    //Dictionary with mapped values
+            static MappedToUnicode()
+            {
+                //fill in the mapped values to the dictionary
+                values.Add(0x82, (char)0x201A);
+                values.Add(0x83, (char)0x0192);
+                values.Add(0x84, (char)0x201E);
+                values.Add(0x85, (char)0x2026);
+                values.Add(0x86, (char)0x2020);
+                values.Add(0x87, (char)0x2021);
+                values.Add(0x88, (char)0x02C6);
+                values.Add(0x89, (char)0x2030);
+                values.Add(0x8A, (char)0x0160);
+                values.Add(0x8B, (char)0x2039);
+                values.Add(0x8C, (char)0x0152);
+                values.Add(0x91, (char)0x2018);
+                values.Add(0x92, (char)0x2019);
+                values.Add(0x93, (char)0x201C);
+                values.Add(0x94, (char)0x201D);
+                values.Add(0x95, (char)0x2022);
+                values.Add(0x96, (char)0x2013);
+                values.Add(0x97, (char)0x2014);
+                values.Add(0x98, (char)0x02DC);
+                values.Add(0x99, (char)0x2122);
+                values.Add(0x9A, (char)0x0161);
+                values.Add(0x9B, (char)0x203A);
+                values.Add(0x9C, (char)0x0153);
+                values.Add(0x9F, (char)0x0178);
+            }
+        }
         #endregion
 
-        #region Поля
+        #region Structures
+        /// <summary>
+        /// Specifies the location of text in the WordDocument stream and additional properties for this text
+        /// </summary>
+        private struct Pcd
+        {
+            //
+            //NOTE: That is a partial structure from [MS-DOC] v20190319.
+            //      I used only the fileds that are needed in this class
+            //
+
+            /// <summary>
+            /// An FcCompressed structure that specifies the location of the text in the WordDocument stream
+            /// </summary>
+            internal FcCompressed fc;
+        }
+
+        /// <summary>
+        /// Specifies the location of text in the WordDocument stream
+        /// </summary>
+        private struct FcCompressed
+        {
+            //
+            //NOTE: That is a partial structure from [MS-DOC] v20190319.
+            //      I used only the fileds that are needed in this class
+            //
+
+            /// <summary>
+            /// Offset in WordDocument stream where the text starts [30 bits]
+            /// If fCompressed=false, the text is an array of 16-bit Unicode characters starting at offset fc
+            /// If fCompressed=true, the text is an array of 8-bit ANSI characters starting at offset fc/2, except mapped to Unicode values
+            /// </summary>
+            internal uint fc;
+            /// <summary>
+            /// A bit that specified whether the text is compressed [1 bit]
+            /// </summary>
+            internal bool fCompressed;
+        }        
+        #endregion
+
+        #region Fields
         #region private
         private CompoundFileBinary CFB = null;      //class for reading the Compound Binary File
-        private MemoryStream WDStream = null;       //WordDocument stream
+        private MemoryStream WDStream = null;       //WordDocument stream (Main Document)
+        private string WDStreamPath = null;         //Path to WordDocument stream if it is read from CFB (Main Document)
+        private MemoryStream TableStream = null;    //Table stream (of the Main Document)
         #endregion
 
         #region protected internal
@@ -929,11 +1010,7 @@ namespace WordReader
         #endregion
         #endregion
 
-        #region Свойства
-
-        #endregion
-
-        #region Конструкторы
+        #region Constructors
         /// <summary>
         /// Class constructor
         /// </summary>
@@ -974,7 +1051,7 @@ namespace WordReader
         }
         #endregion
 
-        #region Методы
+        #region Methods
         #region private
         /// <summary>
         /// Checks whether the file specified for this class is a Word Binary File
@@ -1002,12 +1079,13 @@ namespace WordReader
                 }
                 if (i == Paths.Length) return false;                                            //if we didn't find the main WordDocument stream in the CFB, assume that this file isn't Word Binary File
                 WDStream = CFB.getStream(streamID);                                             //getting WordDocument stream from CFB
+                WDStreamPath = Paths[i];                                                        //save path to WordDocument stream read from CFB
             }
 
             BinaryReader brWDStream = new BinaryReader(WDStream);                               //create BinaryReader for WDStream;
             WDStream.Seek(0, SeekOrigin.Begin);                                                 //seek to the beginning of the WDStream
 
-            ushort wIdent = 0;                                                                  //{FIB.FibBase.wIdent} Specifies that this is Word Binary File. (MUST: 0xA5EC) [off.: 0; len.: 2 bytes]
+            ushort wIdent = 0;                                                                  //{WD.FIB.FibBase.wIdent} Specifies that this is Word Binary File. (MUST: 0xA5EC) [off.: 0; len.: 2 bytes]
             wIdent = brWDStream.ReadUInt16();                                                   //read wIdent from WDStream
 
             if (wIdent == 0xA5EC) return true;                                                  //if wIdent equals 0xA5EC we assume this file is a Word Binary File
@@ -1017,7 +1095,166 @@ namespace WordReader
         #endregion
 
         #region protected internal
+        /// <summary>
+        /// Retrieve text from the document
+        /// </summary>
+        /// <returns>String containing the document text (null if couldn't)</returns>
+        protected internal string getText()
+        {
+            //
+            //NOTE: We will not read all the structures from the document. We'll just read those that are needed to retrieve text from it.
+            //      That is why there will be variables in this method which are read directly from the file streams.
+            //      I'll give them names according to [MS-DOC] v20190319 documentation.
+            //      And the structure of comments for them will be:
+            //      {full structure path from the stream to the variable} Text description of the meaning of variable [off.: offset from beginning of the stream; len.: length in bytes]
+            //
 
+            if (CFB == null) return null;                                                       //if CompoundFileBinary was not created there is nothing to read
+
+            string[] Paths = null;                                                              //paths to the found streams in the CFB
+            uint[] StreamIds = null;                                                            //StreamIds of the found streams in the CFB
+            uint streamID = 0;                                                                  //Id of the actual stream to retrieved from the CFB
+            string Path = null;                                                                 //Path of the actual stream to retrieved from the CFB
+
+            if (WDStream == null)                                                               //if WordDocument stream was not read from the CFB
+            {
+                if (!CFB.findStream("WordDocument", ref Paths, ref StreamIds)) return null;     //if no WordDocument stream found in CFB there is nothing to read
+
+                int i = 0;                                                                      //parameter of the following cicle
+                for (i = 0; i < Paths.Length; i++)                                              //moving through all found streams
+                {
+                    if (Paths[i].IndexOf("ObjectPool") == -1)                                   //we're looking for the main WordDocument stream (not the ones that inserted to the file as OLE objects)
+                    {
+                        streamID = StreamIds[i];                                                //save StreamId of the main WordDocument stream
+                        Path = Paths[i];                                                        //save Path of the main WordDocument
+                        break;                                                                  //break the cicle
+                    }
+                }
+                if (i == Paths.Length) return null;                                             //if we didn't find the main WordDocument stream in the CFB there is nothing to read
+                WDStream = CFB.getStream(streamID);                                             //getting WordDocument stream from CFB
+                WDStreamPath = Path;                                                            //save WordDocument stream path
+            }
+
+            BinaryReader brWDStream = new BinaryReader(WDStream);                               //create BinaryReader for WDStream
+
+            if (TableStream == null)                                                            //if Table stream was not read from the CFB
+            {
+                //first of all we will determine which Table stream to use: 1Table or 0Table
+                byte[] AtoM = null;                                                             //{WD.FIB.FibBase.A-M} Bit-field that specifies a lot of stuff [off.: 10; len.: 2 bytes]
+                WDStream.Seek(10, SeekOrigin.Begin);                                            //seek WDStream to the offset of bitsAtoM
+                AtoM = brWDStream.ReadBytes(2);                                                 //read 2 bytes from WDStream
+                bool fWhichTblStm = ((AtoM[0] & 0x40) == 0) ? false : true;                     //{WD.FIB.FibBase.fWhichTblStm (bit 6 (G) of AtoM)}.
+                                                                                                //Specifies the Table stream to which the FIB refers (true - 1Table, false - 0Table)
+
+                //now we will generate path to the Table stream and read it from CFB
+                Path = WDStreamPath.Substring(0, WDStreamPath.LastIndexOf('\\') + 1);           //Table stream should be located in the same storage as WordDocument stream
+                Path += (fWhichTblStm) ? "1Table" : "0Table";                                   //add the name of the Table stream to Path depending on the value of the bit fWhichTblStm from FIB
+                TableStream = CFB.getStream(Path);                                              //get Table stream from CFB
+                if (TableStream == null) return null;                                           //if Table stream was not found we won't be able to read text from file
+            }
+
+            BinaryReader brTableStream = new BinaryReader(TableStream);                         //create BinaryReader for TableStream
+
+            //get the number of symbols in the Main Document text
+            int ccpText = 0;                                                                    //{WD.Fib.FibRgLw.ccpText} Count of CPs in the Main Document (MUST: >=0) [off.: 76;len.: 4 bytes]
+            WDStream.Seek(76, SeekOrigin.Begin);                                                //seek WDStream to the location of ccpText
+            ccpText = brWDStream.ReadInt32();                                                   //read ccpText from WDStream
+
+            //get the Clx from Table stream
+            WDStream.Seek(418, SeekOrigin.Begin);                                               //seek WDStream to the offset of fcClx
+            uint fcClx = brWDStream.ReadUInt32();                                               //{WD.Fib.fibRgFcLcb97.fcClx} Offset of the Clx in the Table stream [off.: 418;len.: 4 bytes]
+            uint lcbClx = brWDStream.ReadUInt32();                                              //{WD.Fib.fibRgFcLcb97.lcbClx} Size in bytes of the Clx in the Table stream (MUST >0) [off.: 422;len.: 4 bytes]
+            if (lcbClx <= 0) return null;                                                       //lcbClx must be greater than zero. If it's not we can't read the file
+            TableStream.Seek(fcClx, SeekOrigin.Begin);                                          //seek TableStream to the offset of Clx
+            byte[] Clx = brTableStream.ReadBytes((int)lcbClx);                                  //read Clx from the Table stream
+
+            //get PlcPcd from Clx
+            MemoryStream msClx = new MemoryStream(Clx);                                         //create MemoryStream from Clx
+            BinaryReader brClx = new BinaryReader(msClx);                                       //create BinaryReader for msClx
+            byte clxt = brClx.ReadByte();                                                       //{Clx.Prc.clxt OR Clx.Pcdt.clxt} First byte of the Prc and Pcdt (MUST: 0x01 for Prc OR 0x02 for Pcdt) [off.: variable;len.: 1 byte]
+            while (clxt != 0x02)                                                                //while we haven't reached the beginning of the Pcdt
+            {
+                if (clxt != 0x01) return null;                                                  //if that is not Prc then something is wrong with the file - we can't read it
+                short cbGrpprl = brClx.ReadInt16();                                             //{Clx.Prc.cbGrpprl} Size in bytes of the GrpPrl which follows (MUST <= 0x3FA2) [off.: variable;len.: 2 bytes]
+                if (cbGrpprl > 0x3FA2) return null;                                             //if cbGrpprl is greater than 0x3FA2 then we can't read the file - it's corrupted
+                msClx.Seek(cbGrpprl, SeekOrigin.Current);                                       //seek cbGrpprl bytes from the current offset
+                clxt = brClx.ReadByte();                                                        //read the value of the next clxt
+            }
+            uint lcb = brClx.ReadUInt32();                                                      //{Clx.Pcdt.lcb} Size in bytes of the PlcPcd which follows [off.: variable,len.: 4 bytes]
+            byte[] PlcPcd = brClx.ReadBytes((int)lcb);                                          //read PlcPcd from Clx
+            brClx.Close();                                                                      //close BinaryReader and MemoryStream for Clx
+
+            //retrieve two arrays from PlcPcd: aCP and aPcd
+            int n = ((int)lcb - 4) / (8 + 4);                                                   //number of data elements in PlcPcd (number of items in aPcd) (and number of items in aCP is (n+1))
+            uint[] aCP = new uint[n + 1];                                                       //allocating memory for aCP - the array of CP elements that specifies the starting points of text ranges 
+            Pcd[] aPcd = new Pcd[n];                                                            //allocating memory for aPcd - the array of Pcds that specifies the location of text in WordDocument Stream
+            MemoryStream msPlcPcd = new MemoryStream(PlcPcd);                                   //create MemoryStream for PlcPcd
+            BinaryReader brPlcPsd = new BinaryReader(msPlcPcd);                                 //create BinaryReader for msPlcPcd
+            for (int i = 0; i < aCP.Length; i++) aCP[i] = brPlcPsd.ReadUInt32();                //read aCP from PlcPcd
+            for (int i = 0; i < aPcd?.Length; i++)                                              //read aPcd from PlcPcd
+            {
+                msPlcPcd.Seek(2, SeekOrigin.Current);                           //seek 2 bytes from current (to skip data that we do not need)
+                                                                                //byte[] readBytes = brPlcPsd.ReadBytes(4);                       //read 4 bytes from PlcPcd (that is FcCompressed structure)
+                                                                                //aPcd[i].fc.fc = BitConverter.ToUInt32(readBytes, 0);            //take them as uint to FcCompressed.fc
+                                                                                //aPcd[i].fc.fc = aPcd[i].fc.fc & 0x3FFFFFFF;                     //use bitwise and to set bits 30 and 31 to 0 (because they are not for fc in FcCompressed)
+                                                                                //aPcd[i].fc.fCompressed = ((readBytes[3] & 0x40000000) == 0) ?   //check bit 30 in readBytes (it is FcCompressed.fCompressed)
+                                                                                //false :                                                     //if it equals 0 fCompressed if false
+                                                                                //true;                                                       //if it equals 1 fCompressed if true
+                aPcd[i].fc.fc = brPlcPsd.ReadUInt32();
+                aPcd[i].fc.fCompressed = ((aPcd[i].fc.fc & 0x40000000) == 0) ?
+                    false :
+                    true;
+                aPcd[i].fc.fc &= 0x3FFFFFFF;
+
+                msPlcPcd.Seek(2, SeekOrigin.Current);
+            }
+
+            //reading text from WordDocument stream
+            //
+            //NOTE: Text in WordDocument stream is splitted on blocks.
+            //      Encoding used in each block is described by FcCompressed.fCompressed bit.
+            //
+            //      If it is false (zero) in aPcd[N] then Unicode is used for text-block number N, each character occupies 2 bytes, 
+            //      the text-block is located at offset FcCompressed.fc and number of characters in this block is aCP[N+1]-aCP[N].
+            //
+            //      If it is true (one) in aPcd[N] then ANSI is used for text-block number N, each character occupies 1 byte,
+            //      the text-block is located at offset (FcCompressed.fc/2) and number of characters in this block is aCP[N+1]-aCP[N].
+            //
+            //      There is one more nuance about ANSI text-blocks: there is a list of mapped byte values, that are used not as ANSI
+            //      characters but as wildcards for some Unicode characters. I use a static class MappedToUnicode for them in which
+            //      I declared a Dictionary collection. The Key in every pair of that Dictionary is ANSI 1 byte value and the Value
+            //      is a Unicode character.
+            //
+            string docText = "";                                                                //buffer for the text retrieved from the document
+            for (int i = 0; i < aPcd?.Length; i++)                                              //moving through all Pcds in aPcd
+            {
+                string readText = "";                                                           //current text-block read from the WordDocument stream
+                byte[] readBytes = null;                                                        //current bytes-block read from the WordDocument stream
+                if (aPcd[i].fc.fCompressed)                                                     //if fCompressed is true we will read ANSI
+                {
+                    WDStream.Seek((aPcd[i].fc.fc / 2), SeekOrigin.Begin);                               //seek to needed offset in WordDocument stream
+                    readBytes = brWDStream.ReadBytes((int)(aCP[i + 1] - aCP[i]));                       //read current bytes-block from WordDocument stream
+                    readText = Encoding.Default.GetString(readBytes);                                   //convert ANSI bytes to Unicode string
+                    for (int j = 0; j < readBytes.Length; j++)                                          //moving through all the read bytes
+                    {
+                        char tmpChar;                                                                   //temporary character
+                        if (MappedToUnicode.values.TryGetValue(readBytes[j], out tmpChar))              //trying to find current ANSI byte amidst the MappedToUnicode values
+                            readText = readText.Substring(0, j) + tmpChar + readText.Substring(j + 1);  //if found, replace corresponding character in Unicode string with the one from MappedToUnicode
+                    }
+                }
+                else                                                                            //if fCompressed is false we will read Unicode
+                {
+                    WDStream.Seek(aPcd[i].fc.fc, SeekOrigin.Begin);                                     //seek to needed offset in WordDocument stream
+                    readBytes = brWDStream.ReadBytes((int)(2 * (aCP[i + 1] - aCP[i])));                 //read current bytes-block from WordDocument stream
+                    readText = Encoding.Unicode.GetString(readBytes);                                   //converted read bytes-block to Unicode string
+                }
+                docText += readText;                                                            //add currently read text-block to the buffer of the text retrieved from the document
+            }
+
+            docText = docText.Substring(0, ccpText);                                            //cut buffer to the length of the text in MainDocument
+
+            return docText;                                                                     //return the retrieved text
+        }
         #endregion
         #endregion
     }
