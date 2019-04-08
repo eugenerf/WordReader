@@ -1022,7 +1022,113 @@ namespace WordReader
             /// A bit that specified whether the text is compressed [1 bit]
             /// </summary>
             internal bool fCompressed;
-        }        
+        }
+
+        /// <summary>
+        /// Specifies the location of the ChpxFkp structure if WordDocument stream
+        /// </summary>
+        private struct PnFkpChpx
+        {
+            /// <summary>
+            /// Offset of the ChpxFkp structure in WordDocument stream. Offset = pn*512 [22 bits]
+            /// </summary>
+            internal uint pn;
+
+            /// <summary>
+            /// MUST be ignored [10 bits]
+            /// </summary>
+            ushort unused;
+        }
+
+        /// <summary>
+        /// Maps text to its character properties
+        /// </summary>
+        private struct ChpxFkp
+        {
+            /// <summary>
+            /// Offset in the WordDocument stream where a run of text begins [crun+1 elements each 4 bytes long]
+            /// </summary>
+            internal uint[] rgfc;
+
+            /// <summary>
+            /// Specifies the offset of one of the Chpxs whithin this ChpxFkp. Offset is computed by muliplying this value by 2
+            /// (MUST: offset OR 0 which means that no Chpx for this item) [crun elements each 1 byte long]
+            /// </summary>
+            internal byte[] rgb;
+
+            /// <summary>
+            /// Array of Chpx structures
+            /// </summary>
+            internal Chpx[] chpx;
+
+            /// <summary>
+            /// Number of runs of text in this ChpxFkp (MUST: >= 0x01 AND NOT EXCEED 0x65) [last 1 byte of this ChpxFkp]
+            /// </summary>
+            internal byte crun;
+        }
+
+        /// <summary>
+        /// Specifies the set of properties for text
+        /// </summary>
+        private struct Chpx
+        {
+            /// <summary>
+            /// Specifies the size of grpprl in bytes [1 byte]
+            /// </summary>
+            internal byte cb;
+
+            /// <summary>
+            /// Specifies the properties
+            /// </summary>
+            internal Prl[] grpprl;
+        }
+
+        /// <summary>
+        /// A Sprm that is followed by an operand
+        /// </summary>
+        private struct Prl
+        {
+            /// <summary>
+            /// Specifies the property being modified [2 bytes]
+            /// </summary>
+            internal Sprm sprm;
+
+            /// <summary>
+            /// Operand for the sprm [variable length specified by sprm.spra]
+            /// </summary>
+            internal byte[] operand;
+        }
+
+        /// <summary>
+        /// Specifies a modification to a property of a character, paragrahp, table or section
+        /// </summary>
+        private struct Sprm
+        {
+            /// <summary>
+            /// In combination with fSpec specifies the property being modified [9 bits]
+            /// </summary>
+            internal ushort ispmd;  //Formula to calculate this field: ispmd = sprm & 0x01FF
+
+            /// <summary>
+            /// In combination with ispmd specifies the property being modified [1 bit]
+            /// </summary>
+            internal bool fSpec;    //Formula to calculate this field: fSpec = (sprm/512) & 0x0001
+
+            /// <summary>
+            /// Specifies the kind of document content to which this Sprm applies
+            /// (MUST: 1 - modifies a paragraph property, 2 - character, 3 - picture, 4 - section, 5 - table property)
+            /// [3 bits]
+            /// </summary>
+            internal byte sgc;      //Formula to calculate this field: sgc = (sprm/1024) & 0x0007
+
+            /// <summary>
+            /// Size of the operand of this Sprm
+            /// (MUST: 0 - ToggleOperand (1 byte in size); 1 - 1 byte; 2, 4 or 5 - 2 bytes; 3 - 4 bytes; 7 - 3 bytes;
+            /// 6 - operand is of variable length, the first byte of the operand indicates the size of the rest of the operand, except in the cases of sprmTDefTable and sprmPChgTabs
+            /// [3 bits]
+            /// </summary>
+            internal byte spra;     //Formula to calculate this field: spra = sprm / 8192
+        }
         #endregion
 
         #region Fields
@@ -1267,13 +1373,135 @@ namespace WordReader
                     aPcd[i].prm.Prm0_val = brPlcPsd.ReadByte();                 //{Clx.Pcdt.PlcPcd.aPcd.Prm0.val} Operand for the Sprm specified by isprm [off.: variable; len.: 8 bits]
                 }
             }
+            brPlcPsd.Close();                                                   //we don't need brPlcPsd and msPlcPsd anymore and can close them
 
             //read PlcBteChpx from the TableStream
-            WDStream.Seek(250, SeekOrigin.Begin);                               //seek WDStream to the offset of fcPlcfBteChpx
-            uint fcPlcfBteChpx = brWDStream.ReadUInt32();                       //{Fib.FibRgFcLcb97.fcPlcfBteChpx} Offset of PlcBteChpx in the Table stream [off.: 250;len.: 4 bytes]
-            uint lcbPlcfBteChpx = brWDStream.ReadUInt32();                      //{Fib.FibRgFcLcb97.lcbPlcfBteChpx} Size in bytes of PlcBteChpx in the Table Stream [off.: 254;len.: 4 bytes]
-            TableStream.Seek(fcPlcfBteChpx, SeekOrigin.Begin);                  //seek TableStream to the offset of PlcBteChpx
-            byte[] PlcBteChpx = brTableStream.ReadBytes((int)lcbPlcfBteChpx);   //read PlcBteChpx from the Table stream
+            WDStream.Seek(250, SeekOrigin.Begin);                                               //seek WDStream to the offset of fcPlcfBteChpx
+            uint fcPlcfBteChpx = brWDStream.ReadUInt32();                                       //{Fib.FibRgFcLcb97.fcPlcfBteChpx} Offset of PlcBteChpx in the Table stream [off.: 250;len.: 4 bytes]
+            uint lcbPlcfBteChpx = brWDStream.ReadUInt32();                                      //{Fib.FibRgFcLcb97.lcbPlcfBteChpx} Size in bytes of PlcBteChpx in the Table Stream [off.: 254;len.: 4 bytes]
+            TableStream.Seek(fcPlcfBteChpx, SeekOrigin.Begin);                                  //seek TableStream to the offset of PlcBteChpx
+            byte[] PlcBteChpx = brTableStream.ReadBytes((int)lcbPlcfBteChpx);                   //read PlcBteChpx from the Table stream
+
+            //retrieve two arrays from PlcBteChpx: aFC and aPnBteChpx
+            n = ((int)lcbPlcfBteChpx - 4) / (4 + 4);                                            //number of data elements in PlcBteChpx (number of items in aPnBteCHpx) (and number of items in aFC is (n+1))
+            uint[] aFC = new uint[n + 1];                                                       //allocating memory for aFC - the array of elements that specifies an offset where text with properties from aPnBteChpx begins
+            PnFkpChpx[] aPnBteChpx = new PnFkpChpx[n];                                          //allocating memory for aPnBteChpx - the array of PnFkpChpx that specifies the location of ChpxFkp in WordDocument stream
+            MemoryStream msPlcBteChpx = new MemoryStream(PlcBteChpx);                           //create MemoryStream for PlcBteChpx
+            BinaryReader brPlcBteChpx = new BinaryReader(msPlcBteChpx);                         //create BinaryReader for msPlcBteChpx
+            for (int i = 0; i < n + 1; i++) aFC[i] = brPlcBteChpx.ReadUInt32();                 //read aFC from PlcBteChpx
+            for (int i = 0; i < n; i++)
+            {
+                aPnBteChpx[i].pn = brPlcBteChpx.ReadUInt32();                                   //read aPnBteChps.pn from PlcBteChpx
+                aPnBteChpx[i].pn &= 0x3FFFFF;                                                   //use bitwise AND to drop 10 MSB in aPnBteChpx[i].pn - they're not used and must ne ignored
+            }
+            brPlcBteChpx.Close();                                                               //we don't need brPlcBteChpx & msPlcBteChpx anymore and can close them
+
+            //retrieve aChpxFkp (array of ChpxFkp structures parallel to aFC) from WordDocument stream
+            ChpxFkp[] aChpxFkp = new ChpxFkp[aPnBteChpx.Length];                                //allocated memory for aChpxFkp
+            for (int i = 0; i < aPnBteChpx.Length; i++)
+            {
+                WDStream.Seek(aPnBteChpx[i].pn + 511, SeekOrigin.Begin);                        //seek WDStream to offset of ChpxFkp.crun
+                aChpxFkp[i].crun = brWDStream.ReadByte();                                       //{ChpxFkp.crun} Number of runs of text in this ChpxFkp (MUST: >= 0x01 AND <=0x65) [1 byte]
+                aChpxFkp[i].rgfc = new uint[aChpxFkp[i].crun + 1];                              //allocate memory for aChpxFkp.rgfc
+                aChpxFkp[i].rgb = new byte[aChpxFkp[i].crun];                                   //allocate memory for aChpxFkp.rgb
+                aChpxFkp[i].chpx = new Chpx[aChpxFkp[i].crun];                                  //allocate memory for aChpxFkp.chpx
+                WDStream.Seek(aPnBteChpx[i].pn, SeekOrigin.Begin);                              //seek WDStream to the beginning of current ChpxFkp
+                for (int j = 0; j < aChpxFkp[i].crun + 1; j++)
+                    aChpxFkp[i].rgfc[j] = brWDStream.ReadUInt32();                              //{ChpxFkp.rgfc} Offset in the WordDocument stream where a run of text begins [4 bytes]
+                for (int j = 0; j < aChpxFkp[i].crun; j++)
+                {
+                    aChpxFkp[i].rgb[j] = brWDStream.ReadByte();                                 //{ChpxFkp.rgb} Specifies the offset of one of the Chpxs whithin this ChpxFkp
+                                                                                                //(MUST: offset OR 0 which means that no Chpx for this item) [1 byte]
+                    if (aChpxFkp[i].rgb[j] == 0)                            //if Chpx.rgb == 0 then there is no Chpx associated with this element or rgb
+                    {
+                        aChpxFkp[i].chpx[j].cb = 0;                         //then ChpxFkp.chpx.cb = 0
+                        aChpxFkp[i].chpx[j].grpprl = null;                  //and ChpxFkp.chpx.grpprl = null
+                    }
+                    else                                                    //if Chpx.rgb != 0 then there is Chpx associated with this element of rgb
+                    {
+                        long wdsCurPos = WDStream.Position;                 //save current position in WDStream
+                        //calculate offset of current chpx in WDStream
+                        long chpxOffset = aPnBteChpx[i].pn +                //offset of current ChpxFkp plus
+                            (aChpxFkp[i].crun + 1) * 4 +                    //length of rgfc plus
+                            aChpxFkp[i].crun +                              //length of rgb plus
+                            aChpxFkp[i].rgb[j] * 2;                         //current ChpxFkp.rgb*2 - offset of current chpx in current ChpxFkp (from the end of rgb)
+                        WDStream.Seek(chpxOffset, SeekOrigin.Begin);        //seek to offset of current chpx
+                        aChpxFkp[i].chpx[j].cb = brWDStream.ReadByte();     //{ChpxFkp.chpx.cb} Specifies the size of grpprl in bytes [1 byte]
+                        if (aChpxFkp[i].chpx[j].cb != 0)                    //if there is grpprl in this chpx then we'll read grpprl
+                        {
+                            aChpxFkp[i].chpx[j].grpprl = new Prl[1];        //allocate memory for one item of grpprl by now
+                            byte cbLeftBytes = aChpxFkp[i].chpx[j].cb;      //number of bytes left to read from the current grpprl
+                            int curPrlPos = 0;                              //current item of Prl in grpprl
+                            while (cbLeftBytes > 0)                         //reading while there are Prls unread
+                            {
+                                //read sprm and interpret its fields
+                                uint sprm = brWDStream.ReadUInt32();                                                //{Prl.sprm} Specifies the property being modified [2 bytes]
+                                aChpxFkp[i].chpx[j].grpprl[curPrlPos].sprm.ispmd = (ushort)(sprm & 0x01FF);         //{Sprm.ispmd} In combination with fSpec specifies the property being modified [9 bits]
+                                aChpxFkp[i].chpx[j].grpprl[curPrlPos].sprm.fSpec = checkBit(sprm / 512, 0);         //{Sprm.fSpec} In combination with ispmd specifies the property being modified [1 bit]
+                                aChpxFkp[i].chpx[j].grpprl[curPrlPos].sprm.sgc = (byte)((sprm / 1024) & 0x0007);    //{Sprm.sgc} Specifies the kind of document content to which this Sprm applies
+                                                                                                                    //(MUST: 1 - modifies a paragraph property, 2 - character, 3 - picture, 4 - section, 5 - table property)
+                                                                                                                    //[3 bits]
+                                aChpxFkp[i].chpx[j].grpprl[curPrlPos].sprm.spra = (byte)(sprm / 8192);              //{Sprm.spra} Size of the operand of this Sprm
+                                                                                                                    //(MUST: 0 - ToggleOperand (1 byte in size); 1 - 1 byte; 2, 4 or 5 - 2 bytes; 3 - 4 bytes; 7 - 3 bytes;
+                                                                                                                    //6 - operand is of variable length, the first byte of the operand indicates the size of the rest of the operand, except in the cases of sprmTDefTable and sprmPChgTabs
+                                                                                                                    //[3 bits]
+                                //read operand for the current sprm
+                                uint opSize = 1;                                                                    //size of the current operand
+                                switch (aChpxFkp[i].chpx[j].grpprl[curPrlPos].sprm.spra)                            //switch between sizes of the current operand specified by spra
+                                {
+                                    case 0: case 1: opSize = 1; break;                                              //spra = 0 OR 1: size is 1 byte
+                                    case 2: case 4: case 5: opSize = 2; break;                                      //spra = 2, 4 OR 5: size is 2 bytes
+                                    case 7: opSize = 3; break;                                                      //spra = 7: size is 3 bytes
+                                    case 3: opSize = 4; break;                                                      //spra = 3: size is 4 bytes
+                                    case 6:                                                                         //spra = 6: size depends on ispdm
+                                        if (aChpxFkp[i].chpx[j].grpprl[curPrlPos].sprm.sgc == 5 &&
+                                            aChpxFkp[i].chpx[j].grpprl[curPrlPos].sprm.ispmd == 0x08)               //if Sprm is sprmTDefTable
+                                        {
+                                            //operand is TDefTableOperand structure
+                                            opSize = brWDStream.ReadUInt32();                                       //{TDefTableOperand.cb} Number of bytes used by the remainder of this structure, incremented by 1 [2 bytes]
+                                            opSize++;                                                               //to get the full size of this operand
+                                            WDStream.Seek(-2, SeekOrigin.Current);                                  //seek WDStream back to the offset of the current operand
+                                        }
+                                        else if (aChpxFkp[i].chpx[j].grpprl[curPrlPos].sprm.sgc == 1 &&
+                                            aChpxFkp[i].chpx[j].grpprl[curPrlPos].sprm.ispmd == 0x15)               //if Sprm is sprmPChgTabs
+                                        {
+                                            //operand is PChgTabsOperand structure
+                                            opSize = brWDStream.ReadByte();                                         //{PChgTabsOperand.cb} Size in bytes of this operand (MUST >=2 AND <=255) [1 byte]
+                                            if (opSize < 2) return null;                                            //if cb is less than 2, then we can't read this file
+                                            if (opSize == 255)                                                      //if cb == 255 
+                                            {
+                                                //reading the operand further
+                                                byte pctdcTabs = brWDStream.ReadByte();                             //{PChgTabsDelClose.cTabs} Number of records in rgdxaDel and rgdxaClose
+                                                                                                                    //(MUST >=0 AND <=64) [1 byte]
+                                                WDStream.Seek(pctdcTabs * 4, SeekOrigin.Current);                   //seek WDStream to the offset of PChgTabsAdd
+                                                byte pctaTabs = brWDStream.ReadByte();                              //{PChgTabsAdd.cTabs} Number of records in rgdxaAdd and rgtbdAdd
+                                                                                                                    //(MUST <=64) [1 byte]
+                                                opSize = (uint)(4 * pctdcTabs + 3 * pctdcTabs);                     //calculated size of this operand without the first byte
+                                                WDStream.Seek(-pctdcTabs * 4, SeekOrigin.Current);                  //seek WDStream back
+                                            }
+                                            opSize++;                                                               //to get the full size of this operand
+                                            WDStream.Seek(-1, SeekOrigin.Current);                                  //seek WDStream back to the offset of the current operand
+                                        }
+                                        else                                                                        //for other Sprms
+                                        {
+                                            //read first byte of the operand
+                                            opSize = brWDStream.ReadByte();                                         //read size of this operand without the first byte
+                                            opSize++;                                                               //to get the full size of the operand
+                                            WDStream.Seek(-1, SeekOrigin.Current);                                  //seek WDStream back to the offset of this operand
+                                        }
+                                        break;
+                                    default: break;                                                                 //in other cases of spra assume size as 1 byte
+                                }
+                                aChpxFkp[i].chpx[j].grpprl[curPrlPos].operand = brWDStream.ReadBytes((int)opSize);  //{Prl.operand} Operand for the sprm [variable]
+                                curPrlPos++;                                                                        //increase current position in grpprl by one
+                                cbLeftBytes -= (byte)opSize;                                                        //decrease number of bytes left in current grpprl by the size of current operand
+                            }
+                        }
+                        else aChpxFkp[i].chpx[j].grpprl = null;             //if there is no grpprl in this chpx then chpx.grpprl = null
+                        WDStream.Seek(wdsCurPos, SeekOrigin.Begin);         //finished reading current ChpxFkp.rgb and corresponding chpx - seek WDStream to the saved position
+                    }
+                }
+            }
 
             //reading text from WordDocument stream
             //
