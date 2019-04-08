@@ -1495,6 +1495,7 @@ namespace WordReader
                                 aChpxFkp[i].chpx[j].grpprl[curPrlPos].operand = brWDStream.ReadBytes((int)opSize);  //{Prl.operand} Operand for the sprm [variable]
                                 curPrlPos++;                                                                        //increase current position in grpprl by one
                                 cbLeftBytes -= (byte)opSize;                                                        //decrease number of bytes left in current grpprl by the size of current operand
+                                if (cbLeftBytes > 0) Array.Resize(ref aChpxFkp[i].chpx[j].grpprl, curPrlPos + 1);   //reallocate memory for the next Prl in grpprl
                             }
                         }
                         else aChpxFkp[i].chpx[j].grpprl = null;             //if there is no grpprl in this chpx then chpx.grpprl = null
