@@ -1301,6 +1301,26 @@ namespace WordReader
             //
 
             /// <summary>
+            /// {Fib.FibRgFcLcb97.fcPlcfBteChpx} Offset of PlcBteChpx in the Table stream [off.: 96;len.: 4 bytes]
+            /// </summary>
+            internal uint fcPlcfBteChpx;
+
+            /// <summary>
+            /// {Fib.FibRgFcLcb97.lcbPlcfBteChpx} Size in bytes of PlcBteChpx in the Table Stream [off.: 100;len.: 4 bytes]
+            /// </summary>
+            internal uint lcbPlcfBteChpx;
+
+            /// <summary>
+            /// {Fib.FibRgFcLcb97.fcPlcfBtePapx} Offset of PlcBtePapx in the Table stream [off.: 104; len.: 4 bytes]
+            /// </summary>
+            internal uint fcPlcfBtePapx;
+
+            /// <summary>
+            /// {Fib.FibRgFcLcb97.lcbPlcfBtePapx} Size in bytes of PlcBtePapx in the Table stream [off.: 108; len.: 4 bytes]
+            /// </summary>
+            internal uint lcbPlcfBtePapx;
+
+            /// <summary>
             /// {WD.Fib.fibRgFcLcb97.fcClx} Offset of the Clx in the Table stream [off.: 264;len.: 4 bytes]
             /// </summary>
             internal uint fcClx;
@@ -1310,15 +1330,7 @@ namespace WordReader
             /// </summary>
             internal uint lcbClx;
 
-            /// <summary>
-            /// {Fib.FibRgFcLcb97.fcPlcfBteChpx} Offset of PlcBteChpx in the Table stream [off.: 96;len.: 4 bytes]
-            /// </summary>
-            internal uint fcPlcfBteChpx;
-
-            /// <summary>
-            /// {Fib.FibRgFcLcb97.lcbPlcfBteChpx} Size in bytes of PlcBteChpx in the Table Stream [off.: 100;len.: 4 bytes]
-            /// </summary>
-            internal uint lcbPlcfBteChpx;
+           
         }
 
         /// <summary>
@@ -1541,6 +1553,91 @@ namespace WordReader
         }
 
         /// <summary>
+        /// Maps paragraphs, table rows, and table cells to their properties
+        /// </summary>
+        private struct PapxFkp
+        {
+            /// <summary>
+            /// Offset in the WordDocument stream where a paragraph of text begins, or where an end of row mark exists [cpara+1 elements each 4 bytes long]
+            /// </summary>
+            internal uint[] rgfc;
+
+            /// <summary>
+            /// Specifies the offset of one of the PapxInFkp whithin this PapxFkp [cpara elements each 13 bytes long]
+            /// </summary>
+            internal BxPap[] rgbx;
+
+            /// <summary>
+            /// Array of PapxInFkp structures
+            /// </summary>
+            internal PapxInFkp[] papxInFkp;
+
+            /// <summary>
+            /// Number of runs of text in this ChpxFkp (MUST: >= 0x01 AND NOT EXCEED 0x1D) [last 1 byte of this PapxFkp]
+            /// </summary>
+            internal byte cpara;
+        }
+
+        /// <summary>
+        /// Specifies the offset of a PapxInFkp in PapxFkp
+        /// </summary>
+        private struct BxPap
+        {
+            /// <summary>
+            /// {PapxFkp.BxPap.bOffset} Specifies the offset of a PapxInFkp in a PapxFkp. The offset of the PapxInFkp is bOffset*2.
+            /// If bOffset is 0 then there is no PapxInFkp for this paragraph/ [off.: 0; len.: 1 byte]
+            /// </summary>
+            internal byte bOffset;
+
+            /// <summary>
+            /// {PapxFkp.BxPap.reserved} Specifies version-specific paragraph height information (SHOULD: 0 and be ignored) [off.: 1; len.: 12 bytes]
+            /// </summary>
+            internal byte[] reserved;
+        }
+
+        /// <summary>
+        /// Specifies a set of text properties
+        /// </summary>
+        private struct PapxInFkp
+        {
+            /// <summary>
+            /// Size of the grpprlInPapx
+            /// If this value is not 0, the grpprlInPapx is 2*cb-1 bytes long.
+            /// If this value is 0, the size is specified by the first byte of grpprlInPapx.
+            /// [off.: 0; len.: 1 byte]
+            /// </summary>
+            internal byte cb;
+
+            /// <summary>
+            /// Size of the grpprlInPapx if cb is zero
+            /// The grpprlInPapx is 2*cb_ bytes long
+            /// (MUST: >=1) [off.: 1; len.: 1 byte]
+            /// </summary>
+            internal byte cb_;
+
+            /// <summary>
+            /// The GrpPrlAndIstd structure
+            /// </summary>
+            internal GrpPrlAndIstd grpprlInPapx;
+        }
+
+        /// <summary>
+        /// Specifies the style and properties that are applied to a paragraph, a table row, or a table cell
+        /// </summary>
+        private struct GrpPrlAndIstd
+        {
+            /// <summary>
+            /// Specifies the style that is applied to this paragraph, cell marker or table row marker [off.: 0; len.: 2 bytes]
+            /// </summary>
+            internal short istd;
+
+            /// <summary>
+            /// Specifies the properties of this paragraph, table row, or table cell [off.: 2; len.: variable]
+            /// </summary>
+            internal Prl[] grpprl;
+        }
+
+        /// <summary>
         /// Specifies the set of properties for text
         /// </summary>
         private struct Chpx
@@ -1623,6 +1720,22 @@ namespace WordReader
             /// </summary>
             internal PnFkpChpx[] aPnBteChpx;
         }
+
+        /// <summary>
+        /// Specifies paragraph, table row, or table cell properties
+        /// </summary>
+        private struct PLCBTEPAPX
+        {
+            /// <summary>
+            /// {PlcBtePapx.aFC} Specifies an offset in the WordDocument stream where text begins [off.: 0; len.: variable]
+            /// </summary>
+            internal uint[] aFC;
+
+            /// <summary>
+            /// {PlcBtePapx.aPnBtePapx} An array of PnFkpPapx structures [off.: variable; len.: variable]
+            /// </summary>
+            internal PnFkpChpx[] aPnBtePapx;        //I used PnFkpChpx structures simply because PnFkpPapx and PnFkpChpx are absolutly identical
+        }
         #endregion
 
         #region Fields
@@ -1635,6 +1748,8 @@ namespace WordReader
         private CLX Clx;                            //Clx in the TableStream
         private PLCBTECHPX PlcBteChpx;              //PlcBteChpx in the Table stream
         private ChpxFkp[] aChpxFkp;                 //array of ChpxFkp structures in the WDStream
+        private PLCBTEPAPX PlcBtePapx;              //PlcBtePapx int the Table stream
+        private PapxFkp[] aPapxFkp;                 //array of PapxFkp structures in the WDStream
         #endregion
 
         #region protected internal
@@ -1798,6 +1913,8 @@ namespace WordReader
             WDStream.Seek(250, SeekOrigin.Begin);                                       //seek WDStream to the offset of fcPlcfBteChpx
             Fib.fibRgFcLcbBlob.fibRgFcLcb97.fcPlcfBteChpx = brWDStream.ReadUInt32();    //read fcPlcfBteChpx
             Fib.fibRgFcLcbBlob.fibRgFcLcb97.lcbPlcfBteChpx = brWDStream.ReadUInt32();   //read lcbPlcfBteChpx
+            Fib.fibRgFcLcbBlob.fibRgFcLcb97.fcPlcfBtePapx = brWDStream.ReadUInt32();    //read fcPlcBtePapx
+            Fib.fibRgFcLcbBlob.fibRgFcLcb97.lcbPlcfBtePapx = brWDStream.ReadUInt32();   //read lcbPlcBtePapx
 
             Fib.IsClear = false;                                                        //FIB is not clear now
 
@@ -1817,6 +1934,8 @@ namespace WordReader
             Fib.fibRgFcLcbBlob.fibRgFcLcb97.lcbClx = 0;
             Fib.fibRgFcLcbBlob.fibRgFcLcb97.fcPlcfBteChpx = 0;
             Fib.fibRgFcLcbBlob.fibRgFcLcb97.lcbPlcfBteChpx = 0;
+            Fib.fibRgFcLcbBlob.fibRgFcLcb97.fcPlcfBtePapx = 0;
+            Fib.fibRgFcLcbBlob.fibRgFcLcb97.lcbPlcfBtePapx = 0;
 
             //FIB is clear now
             Fib.IsClear = true;
@@ -2067,11 +2186,49 @@ namespace WordReader
             for (int i = 0; i < n + 1; i++) PlcBteChpx.aFC[i] = brplcBteChpx.ReadUInt32();      //read aFC from plcBteChpx
             for (int i = 0; i < n; i++)
             {
-                PlcBteChpx.aPnBteChpx[i].pn = brplcBteChpx.ReadUInt32();                        //read aPnBteChps.pn from PlcBteChpx
+                PlcBteChpx.aPnBteChpx[i].pn = brplcBteChpx.ReadUInt32();                        //read aPnBteChpx.pn from PlcBteChpx
                 PlcBteChpx.aPnBteChpx[i].pn &= 0x3FFFFF;                                        //use bitwise AND to drop 10 MSB in aPnBteChpx[i].pn - they're not used and must ne ignored
                 PlcBteChpx.aPnBteChpx[i].unused = 0;                                            //initialise aPnBteChpx.unused to zero
             }
             brplcBteChpx.Close();                                                               //we don't need brPlcBteChpx & msPlcBteChpx anymore and can close them
+
+            return true;                                                                        //return true
+        }
+
+        /// <summary>
+        /// Read PlcBtePapx structure from Table stream
+        /// </summary>
+        /// <returns>TRUE if successfully read</returns>
+        private bool readPlcBtePapx()
+        {
+            if (TableStream == null)                                                               //if TableStream is not read yet
+            {
+                //set all PlcBtePapx fields to default values and return false
+                PlcBteChpx.aFC = null;
+                PlcBteChpx.aPnBteChpx = null;
+                return false;
+            }
+
+            BinaryReader brTableStream = new BinaryReader(TableStream);                         //create BinaryReader for TableStream
+
+            TableStream.Seek(Fib.fibRgFcLcbBlob.fibRgFcLcb97.fcPlcfBtePapx, SeekOrigin.Begin);  //seek TableStream to the offset of PlcBtePapx
+            byte[] plcBtePapx = brTableStream.ReadBytes(
+                (int)Fib.fibRgFcLcbBlob.fibRgFcLcb97.lcbPlcfBtePapx);                           //read PlcBtePapx from the Table stream
+
+            //retrieve two arrays from PlcBtePapx: aFC and aPnBtePapx
+            int n = ((int)Fib.fibRgFcLcbBlob.fibRgFcLcb97.lcbPlcfBtePapx - 4) / (4 + 4);        //number of data elements in PlcBtePapx (number of items in aPnBtePapx) (and number of items in aFC is (n+1))
+            PlcBtePapx.aFC = new uint[n + 1];                                                   //allocate memory for aFC
+            PlcBtePapx.aPnBtePapx = new PnFkpChpx[n];                                           //allocate memory for aPnBtePapx
+            MemoryStream msplcBtePapx = new MemoryStream(plcBtePapx);                           //create MemoryStream for plcBtePapx
+            BinaryReader brplcBtePapx = new BinaryReader(msplcBtePapx);                         //create BinaryReader for msplcBtePapx
+            for (int i = 0; i < n + 1; i++) PlcBtePapx.aFC[i] = brplcBtePapx.ReadUInt32();      //read aFC from plcBteChpx
+            for (int i = 0; i < n; i++)
+            {
+                PlcBtePapx.aPnBtePapx[i].pn = brplcBtePapx.ReadUInt32();                        //read aPnBteChpx.pn from PlcBteChpx
+                PlcBtePapx.aPnBtePapx[i].pn &= 0x3FFFFF;                                        //use bitwise AND to drop 10 MSB in aPnBtePapx[i].pn - they're not used and must ne ignored
+                PlcBtePapx.aPnBtePapx[i].unused = 0;                                            //initialise aPnBtePapx.unused to zero
+            }
+            brplcBtePapx.Close();                                                               //we don't need brPlcBtePapx & msPlcBtePapx anymore and can close them
 
             return true;                                                                        //return true
         }
@@ -2125,7 +2282,7 @@ namespace WordReader
                         aChpxFkp[i].chpx[j].cb = brChpx.ReadByte();                         //read Chpx.cb
                         if (aChpxFkp[i].chpx[j].cb != 0)                                    //if there is grpprl in this chpx then we'll read grpprl
                         {
-                            byte cbLeftBytes = aChpxFkp[i].chpx[j].cb;                      //number of bytes left to read from the current grpprl
+                            int cbLeftBytes = aChpxFkp[i].chpx[j].cb;                     //number of bytes left to read from the current grpprl
                             while (cbLeftBytes > 0)                                         //reading while there are Prls unread
                             {
                                 if (aChpxFkp[i].chpx[j].grpprl == null)
@@ -2143,7 +2300,7 @@ namespace WordReader
                                     aChpxFkp = null;                                        //set aChpxFkp to null
                                     return false;                                           //and return false
                                 }
-                                cbLeftBytes -= (byte)readBytes;                             //decrease number of bytes left to read
+                                cbLeftBytes -= readBytes;                                   //decrease number of bytes left to read
                             }
                         }
                         else aChpxFkp[i].chpx[j].grpprl = null;                             //if there is no grpprl in this chpx then chpx.grpprl = null
@@ -2152,6 +2309,105 @@ namespace WordReader
                 brChpx.Close();                                                             //close brChpx - we do not need it anymore
             }
             return true;                                                                    //return true
+        }
+
+        /// <summary>
+        /// Read whole array of PapxFkp structures from WordDocument stream
+        /// </summary>
+        /// <returns>TRUE if successfully read</returns>
+        private bool readPapxFkp()
+        {
+            if (WDStream == null)                                                                   //if WDStream not read yet then we can't read CHpxFkp
+            {
+                aPapxFkp = null;                                                                    //set aPapxFkp to null
+                return false;                                                                       //return false
+            }
+
+            aPapxFkp = new PapxFkp[PlcBtePapx.aPnBtePapx.Length];                                   //allocate memory for aPapxFkp
+
+            BinaryReader brWDStream = new BinaryReader(WDStream);                                   //create BinaryReader for WDStream
+
+            for (int i = 0; i < aPapxFkp.Length; i++)                                               //moving through all the PapxFkp-s
+            {
+                WDStream.Seek(PlcBtePapx.aPnBtePapx[i].pn * 512, SeekOrigin.Begin);                 //seek WDStream to the beginning of current PapxFkp
+                byte[] aPapx = brWDStream.ReadBytes(512);                                           //read PapxFkp
+
+                MemoryStream msPapx = new MemoryStream(aPapx);                                      //create MemoryStream for PapxFkp
+                BinaryReader brPapx = new BinaryReader(msPapx);                                     //create BinaryReader for msPapx
+
+                msPapx.Seek(-1, SeekOrigin.End);                                                    //seek msPapx to the last byte (offset of cpara)
+                aPapxFkp[i].cpara = brPapx.ReadByte();                                              //read cpara
+                aPapxFkp[i].rgfc = new uint[aPapxFkp[i].cpara + 1];                                 //allocate memory for aPapxFkp.rgfc
+                aPapxFkp[i].rgbx = new BxPap[aPapxFkp[i].cpara];                                    //allocate memory for aPapxFkp.rgbx
+                aPapxFkp[i].papxInFkp = new PapxInFkp[aPapxFkp[i].cpara];                           //allocate memory for aPapxFkp.papxInFkp
+
+                msPapx.Seek(0, SeekOrigin.Begin);                                                   //seek msPapx to the beginning
+                for (int j = 0; j < aPapxFkp[i].cpara + 1; j++)
+                    aPapxFkp[i].rgfc[j] = brPapx.ReadUInt32();                                      //read rgfc
+                for (int j = 0; j < aPapxFkp[i].cpara; j++)
+                {
+                    aPapxFkp[i].rgbx[j].bOffset = brPapx.ReadByte();                                //read rgbx.bOffset
+                    aPapxFkp[i].rgbx[j].reserved = brPapx.ReadBytes(12);                            //read rgbx.reserved
+                }
+
+                for (int j = 0; j < aPapxFkp[i].cpara; j++)                                         //moving through all the rgbx-s
+                {
+                    if (aPapxFkp[i].rgbx[j].bOffset == 0)                                           //if rgbx.bOffset == 0 then there is no PapxInFkp associated with this element or rgbx
+                    {
+                        aPapxFkp[i].papxInFkp[j].cb = 0;                                            //then PapxFkp.papxInFkp.cb = 0
+                        aPapxFkp[i].papxInFkp[j].cb_ = 0;                                           //then PapxFkp.papxInFkp.cb_ = 0
+                        aPapxFkp[i].papxInFkp[j].grpprlInPapx.istd = 0;                             //then PapxFkp.papxInFkp.grpprlInPapx.istd = 0
+                        aPapxFkp[i].papxInFkp[j].grpprlInPapx.grpprl = null;                        //and ChpxFkp.chpx.grpprl = null
+                    }
+                    else                                                                            //if Papx.rgbx.bOffset != 0 then there is PaInFkp associated with this element of rgbx
+                    {
+                        msPapx.Seek(aPapxFkp[i].rgbx[j].bOffset * 2, SeekOrigin.Begin);             //seek msPapx to offset of the current papxInFkp
+                        aPapxFkp[i].papxInFkp[j].cb = brPapx.ReadByte();                            //read papxInFkp.cb
+                        int cb = aPapxFkp[i].papxInFkp[j].cb * 2 - 1;                               //calculate length of grpprlInPapx using cb (cb*2-1)
+                        if (aPapxFkp[i].papxInFkp[j].cb == 0)                                       //if cb is zero
+                        {
+                            aPapxFkp[i].papxInFkp[j].cb_ = brPapx.ReadByte();                       //then read cb_
+                            if (aPapxFkp[i].papxInFkp[j].cb_ < 1)                                   //if cb_ < 1 then we can't read aPapxFkp
+                            {
+                                aPapxFkp = null;                                                    //set aPapxFkp to null
+                                return false;                                                       //ans return false
+                            }
+                            cb = aPapxFkp[i].papxInFkp[j].cb_ * 2;                                  //and calculate length of grpprlInPapx using cb_ (cb_*2)
+                        }
+                        if (cb != 0)                                                                //if there is grpprlInPapx in this papxInFkp then we'll read grpprlInPapx
+                        {
+                            aPapxFkp[i].papxInFkp[j].grpprlInPapx.istd = brPapx.ReadInt16();        //read istd
+                            cb -= 2;                                                                //decrease number of bytes left to read
+                            while (cb > 0)                                                          //reading while there are GrpPrlAndIstd-s unread
+                            {   
+                                if (aPapxFkp[i].papxInFkp[j].grpprlInPapx.grpprl == null)
+                                    aPapxFkp[i].papxInFkp[j].grpprlInPapx.grpprl = new Prl[1];      //allocate memory for grpprl
+                                else
+                                    Array.Resize(
+                                        ref aPapxFkp[i].papxInFkp[j].grpprlInPapx.grpprl,
+                                        aPapxFkp[i].papxInFkp[j].grpprlInPapx.grpprl.Length + 1);   //or reallocate it if already done
+                                int curPrlPos =
+                                    aPapxFkp[i].papxInFkp[j].grpprlInPapx.grpprl.Length - 1;        //current position in grpprl array (index of the last item)
+                                short readBytes = readSprm(
+                                        ref aPapxFkp[i].papxInFkp[j].grpprlInPapx.grpprl[curPrlPos],
+                                        ref brPapx);                                                //read current Prl
+                                if (readBytes == 0)                                                 //if couldn't read current Prl then we cannot read aPapxFkp
+                                {
+                                    aPapxFkp = null;                                                //set aPapxFkp to null
+                                    return false;                                                   //and return false
+                                }
+                                cb -= readBytes;                                                    //decrease number of bytes left to read
+                            }
+                        }
+                        else                                                                        //if there is no grpprl in this papxInFkp
+                        {
+                            aPapxFkp[i].papxInFkp[j].grpprlInPapx.grpprl = null;                    //then papxInFkp.grpprlInPapx.grpprl = null
+                        }
+                    }
+                }
+                brPapx.Close();                                                                     //close brPapx - we do not need it anymore
+            }
+            return true;                                                                            //return true
         }
         #endregion
 
@@ -2209,7 +2465,11 @@ namespace WordReader
 
             if (!readPlcBteChpx()) return null;                                                 //try to read PlcBteChpx from the TableStream (return null if couldn't - we cannot retrieve text)
 
+            if (!readPlcBtePapx()) return null;                                                 //try to read PlcBtePapx from the TableStream (return null if couldn't - we cannot retrieve text)
+
             if (!readChpxFkp()) return null;                                                    //try to read aChpxFkp from the WDStream (return null if couldn't - we cannot retrieve text)
+
+            if (!readPapxFkp()) return null;                                                    //try to read aPapxFkp from the WDStream (return null if couldn't - we cannot retrieve text)
 
             //reading text from WordDocument stream
             //
