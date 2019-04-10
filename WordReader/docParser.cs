@@ -913,6 +913,40 @@ namespace WordReader
                 if (getPathId(Path, out Id)) return getStream(Id);  //if specified stream is found, we'll return it's MemoryStream
                 return null;                                        //we will return null if specified stream was not found
             }
+
+            /// <summary>
+            /// Close all reader streams and clear all class fields
+            /// </summary>
+            protected internal void closeReader()
+            {
+                //close binaryreader and filereader stream
+                fileReader.Close();
+
+                //clear all fields' values
+                CFHeaderIsOK = false;
+                DIFAT = null;
+                FAT = null;
+                miniFAT = null;
+                DEArray = null;
+                CFHeader.ByteOrder = null;
+                CFHeader.CLSID = null;
+                CFHeader.DIFAT = null;
+                CFHeader.FirstDIFATSectorLoc = 0;
+                CFHeader.FirstDirSectorLoc = 0;
+                CFHeader.FirstMiniFATSectorLoc = 0;
+                CFHeader.MajorVersion = null;
+                CFHeader.MiniSectorShift = null;
+                CFHeader.MiniStreamCutoffSize = 0;
+                CFHeader.MinorVersion = null;
+                CFHeader.NumDIFATSectors = 0;
+                CFHeader.NumDirSectors = 0;
+                CFHeader.NumFATSectors = 0;
+                CFHeader.NumMiniFATSectors = 0;
+                CFHeader.Reserved = null;
+                CFHeader.SectorShift = null;
+                CFHeader.Signature = null;
+                CFHeader.TransSignNum = 0;                
+            }
             #endregion
             #endregion
         }
@@ -952,9 +986,448 @@ namespace WordReader
                 values.Add(0x9F, (char)0x0178);
             }
         }
+
+        /// <summary>
+        /// Character property modifiers
+        /// </summary>
+        private static class CharPropSPRM
+        {
+            #region enums
+            /// <summary>
+            /// Property visibility flags
+            /// </summary>
+            private enum PropVisFlag
+            {
+                /// <summary>
+                /// Character is visible
+                /// </summary>
+                Visible,
+                /// <summary>
+                /// Character is invisible
+                /// </summary>
+                InVisible,
+                /// <summary>
+                /// Character visibility depends on the character
+                /// </summary>
+                CharDep
+            }
+
+            /// <summary>
+            /// Character visibility flags
+            /// </summary>
+            private enum CharVisFlag
+            {
+                /// <summary>
+                /// Character is visible
+                /// </summary>
+                Visible,
+                /// <summary>
+                /// Character is invisible
+                /// </summary>
+                InVisible,
+                /// <summary>
+                /// Character opens or closes already opened invisible region of characters
+                /// </summary>
+                InRgn
+            }
+            #endregion
+
+            #region fields
+            /// <summary>
+            /// If true the character is currently inside the region of invisible text
+            /// </summary>
+            private static bool InvisibleRgn = false;
+
+            /// <summary>
+            /// If true the character is visible
+            /// </summary>
+            private static bool Visible = true;
+
+            /// <summary>
+            /// Stores information about visibility of characters with actual properties
+            /// </summary>
+            private static Dictionary<ushort, PropVisFlag> PropVisibility = new Dictionary<ushort, PropVisFlag>();
+
+            /// <summary>
+            /// Stores information about visibility of some characters
+            /// </summary>
+            private static Dictionary<char, CharVisFlag> CharVisibility = new Dictionary<char, CharVisFlag>();
+            #endregion
+
+            #region constructors
+            /// <summary>
+            /// Class constructor
+            /// </summary>
+            static CharPropSPRM()
+            {
+                //fill PropVisibility dictionary
+                PropVisibility.Add(0x0800, PropVisFlag.Visible);     //sprmCFRMarkDel
+                PropVisibility.Add(0x0801, PropVisFlag.Visible);     //sprmCFRMarkIns
+                PropVisibility.Add(0x0802, PropVisFlag.InVisible);   //sprmCFFldVanish
+                PropVisibility.Add(0x6A03, PropVisFlag.CharDep);    //sprmCPicLocation
+                PropVisibility.Add(0x4804, PropVisFlag.Visible);     //sprmCIbstRMark
+                PropVisibility.Add(0x6805, PropVisFlag.Visible);     //sprmCDttmRMark
+                PropVisibility.Add(0x0806, PropVisFlag.InVisible);   //sprmCFData
+                PropVisibility.Add(0x4807, PropVisFlag.Visible);     //sprmCIdslRMark
+                PropVisibility.Add(0x6A09, PropVisFlag.Visible);     //sprmCSymbol
+                PropVisibility.Add(0x080A, PropVisFlag.InVisible);    //sprmCFOle2
+                PropVisibility.Add(0x2A0C, PropVisFlag.Visible);     //sprmCHighlight
+                PropVisibility.Add(0x0811, PropVisFlag.Visible);     //sprmCFWebHidden
+                PropVisibility.Add(0x6815, PropVisFlag.Visible);     //sprmCRsidProp
+                PropVisibility.Add(0x6816, PropVisFlag.Visible);     //sprmCRsidText
+                PropVisibility.Add(0x6817, PropVisFlag.Visible);     //sprmCRsidRMDel
+                PropVisibility.Add(0x0818, PropVisFlag.InVisible);   //sprmCFSpecVanish
+                PropVisibility.Add(0xC81A, PropVisFlag.Visible);     //sprmCFMathPr
+                PropVisibility.Add(0x4A30, PropVisFlag.Visible);     //sprmCIstd
+                PropVisibility.Add(0xCA31, PropVisFlag.Visible);     //sprmCIstdPermute
+                PropVisibility.Add(0x2A33, PropVisFlag.Visible);     //sprmCPlain
+                PropVisibility.Add(0x2A34, PropVisFlag.Visible);     //sprmCKcd
+                PropVisibility.Add(0x0835, PropVisFlag.Visible);     //sprmCFBold
+                PropVisibility.Add(0x0836, PropVisFlag.Visible);     //sprmCFItalic
+                PropVisibility.Add(0x0837, PropVisFlag.Visible);     //sprmCFStrike
+                PropVisibility.Add(0x0838, PropVisFlag.Visible);     //sprmCFOutline
+                PropVisibility.Add(0x0839, PropVisFlag.Visible);     //sprmCFShadow
+                PropVisibility.Add(0x083A, PropVisFlag.Visible);     //sprmCFSmallCaps
+                PropVisibility.Add(0x083B, PropVisFlag.Visible);     //sprmCFCaps
+                PropVisibility.Add(0x083C, PropVisFlag.InVisible);   //sprmCFVanish
+                PropVisibility.Add(0x2A3E, PropVisFlag.Visible);     //sprmCKul
+                PropVisibility.Add(0x8840, PropVisFlag.Visible);     //sprmCDxaSpace
+                PropVisibility.Add(0x2A42, PropVisFlag.Visible);     //sprmCIco
+                PropVisibility.Add(0x4A43, PropVisFlag.Visible);     //sprmCHps
+                PropVisibility.Add(0x4845, PropVisFlag.Visible);     //sprmCHpsPos
+                PropVisibility.Add(0xCA47, PropVisFlag.Visible);     //sprmCMajority
+                PropVisibility.Add(0x2A47, PropVisFlag.Visible);     //sprmCIss
+                PropVisibility.Add(0x484B, PropVisFlag.Visible);     //sprmCHpsKern
+                PropVisibility.Add(0x484E, PropVisFlag.Visible);     //sprmCHresi
+                PropVisibility.Add(0x4A4F, PropVisFlag.Visible);     //sprmCRgFtc0
+                PropVisibility.Add(0x4A50, PropVisFlag.Visible);     //sprmCRgFtc1
+                PropVisibility.Add(0x4A51, PropVisFlag.Visible);     //sprmCRgFtc2
+                PropVisibility.Add(0x4852, PropVisFlag.Visible);     //sprmCCharScale
+                PropVisibility.Add(0x2A53, PropVisFlag.Visible);     //sprmCFDStrike
+                PropVisibility.Add(0x0854, PropVisFlag.Visible);     //sprmCFImprint
+                PropVisibility.Add(0x0855, PropVisFlag.InVisible);   //sprmCFSpec
+                PropVisibility.Add(0x0856, PropVisFlag.InVisible);    //sprmCFObj
+                PropVisibility.Add(0xCA57, PropVisFlag.Visible);     //sprmCPropRMark90
+                PropVisibility.Add(0x0858, PropVisFlag.Visible);     //sprmCFEmboss
+                PropVisibility.Add(0x2859, PropVisFlag.Visible);     //sprmCSfxText
+                PropVisibility.Add(0x085A, PropVisFlag.Visible);     //sprmCFBiDi
+                PropVisibility.Add(0x085C, PropVisFlag.Visible);     //sprmCFBoldBi
+                PropVisibility.Add(0x085D, PropVisFlag.Visible);     //sprmCFItalicBi
+                PropVisibility.Add(0x4A5E, PropVisFlag.Visible);     //sprmCFtcBi
+                PropVisibility.Add(0x485F, PropVisFlag.Visible);     //sprmCLidBi
+                PropVisibility.Add(0x4A60, PropVisFlag.Visible);     //sprmCIcoBi
+                PropVisibility.Add(0x4A61, PropVisFlag.Visible);     //sprmCHpsBi
+                PropVisibility.Add(0xCA62, PropVisFlag.Visible);     //sprmCDispFldRMark
+                PropVisibility.Add(0x4863, PropVisFlag.Visible);     //sprmCIbstRMarkDel
+                PropVisibility.Add(0x6864, PropVisFlag.Visible);     //sprmCDttmRMarkDel
+                PropVisibility.Add(0x6865, PropVisFlag.Visible);     //sprmCBrc80
+                PropVisibility.Add(0x4866, PropVisFlag.Visible);     //sprmCShd80
+                PropVisibility.Add(0x4867, PropVisFlag.Visible);     //sprmCIdslRMarkDel
+                PropVisibility.Add(0x0868, PropVisFlag.Visible);     //sprmCFUsePgsuSettings
+                PropVisibility.Add(0x486D, PropVisFlag.Visible);     //sprmCRgLid0_80
+                PropVisibility.Add(0x486E, PropVisFlag.Visible);     //sprmCRgLid1_80
+                PropVisibility.Add(0x286F, PropVisFlag.Visible);     //sprmCIdctHint
+                PropVisibility.Add(0x6870, PropVisFlag.Visible);     //sprmCCv
+                PropVisibility.Add(0xCA71, PropVisFlag.Visible);     //sprmCShd
+                PropVisibility.Add(0xCA72, PropVisFlag.Visible);     //sprmCBrc
+                PropVisibility.Add(0x4873, PropVisFlag.Visible);     //sprmCRgLid0
+                PropVisibility.Add(0x4874, PropVisFlag.Visible);     //sprmCRgLid1
+                PropVisibility.Add(0x0875, PropVisFlag.Visible);     //sprmCFNoProof
+                PropVisibility.Add(0xCA76, PropVisFlag.Visible);     //sprmCFitText
+                PropVisibility.Add(0x6877, PropVisFlag.Visible);     //sprmCCvUl
+                PropVisibility.Add(0xCA78, PropVisFlag.Visible);     //sprmCFELayout
+                PropVisibility.Add(0x2879, PropVisFlag.Visible);     //sprmCLbcCRJ
+                PropVisibility.Add(0x0882, PropVisFlag.Visible);     //sprmCFComplexScripts
+                PropVisibility.Add(0x2A83, PropVisFlag.Visible);     //sprmCWall
+                PropVisibility.Add(0xCA85, PropVisFlag.Visible);     //sprmCCnf
+                PropVisibility.Add(0x2A86, PropVisFlag.Visible);     //sprmCNeedFontFixup
+                PropVisibility.Add(0x6887, PropVisFlag.Visible);     //sprmCPbiIBullet
+                PropVisibility.Add(0x4888, PropVisFlag.Visible);     //sprmCPbiGrf
+                PropVisibility.Add(0xCA89, PropVisFlag.Visible);     //sprmCPropRMark
+                PropVisibility.Add(0x2A90, PropVisFlag.InVisible);   //sprmCFSdtVanish
+
+                //fill CharVisibility Dictionary
+                CharVisibility.Add('\u0001', CharVisFlag.InVisible);    //picture location
+                CharVisibility.Add('\u0002', CharVisFlag.InVisible);    //auto-numbered footnote reference
+                CharVisibility.Add('\u0003', CharVisFlag.InVisible);    //short horizontal line
+                CharVisibility.Add('\u0004', CharVisFlag.InVisible);    //long horizontal line
+                CharVisibility.Add('\u0005', CharVisFlag.InVisible);    //annotation reference character
+                CharVisibility.Add('\u0008', CharVisFlag.InVisible);    //drawn object
+                CharVisibility.Add('\u0013', CharVisFlag.InRgn);        //field begin character
+                CharVisibility.Add('\u0014', CharVisFlag.InRgn);        //field separator character
+                CharVisibility.Add('\u0015', CharVisFlag.InVisible);    //field end character
+                CharVisibility.Add('\u0028', CharVisFlag.InVisible);    //symbol
+                CharVisibility.Add('\u003C', CharVisFlag.InRgn);        //start of a structured document tag bookmark range
+                CharVisibility.Add('\u003E', CharVisFlag.InRgn);        //end of a structured document tag bookmark range
+                CharVisibility.Add('\u2002', CharVisFlag.Visible);      //en space
+                CharVisibility.Add('\u2003', CharVisFlag.Visible);      //em space
+            }
+            #endregion
+
+            #region methods
+            /// <summary>
+            /// Check visibility of the specified character with specified property
+            /// </summary>
+            /// <param name="pr">Property of the character</param>
+            /// <param name="ch">Character</param>
+            /// <returns>TRUE if character is visible</returns>
+            internal static bool IsVisible(Prl[] prls, char ch)
+            {
+                //
+                //NOTE: we will not forget that this class, all of its fields and methods are static!
+                //      It saves its condition (values of fields). And we'll use this feature of static classes.
+                //
+
+                Visible = true;                                                 //set visibility of ch to true
+                foreach (Prl prl in prls)                                       //moving through all prl-s
+                {
+                    PropVisFlag pvf = PropVisFlag.Visible;                      //flag of character visibility according to its properties
+                    if (PropVisibility.TryGetValue(prl.sprm.sprm, out pvf))     //trying to find current property in PropVisibility dictionary 
+                                                                                //and to get information of visibility of the current character from it
+                    {
+                        switch(pvf)                                             //if property was found choose visibility flag
+                        {
+                            case PropVisFlag.Visible:                           //character with current property is visible - we'll do nothing
+                                break;
+                            case PropVisFlag.InVisible:                         //character with current property is invisible
+                                Visible = false;                                //set visibility of character to false
+                                break;
+                            case PropVisFlag.CharDep:                           //visibility of the character with current property depends of the character itself
+                                CharVisFlag cvf = CharVisFlag.Visible;          //flag of character visibility according to the character itself
+                                if (CharVisibility.TryGetValue(ch, out cvf))    //trying to find current character in CharVisibility dictionary
+                                                                                //and to get information of visibility of the current character
+                                {
+                                    switch (cvf)                                //if character was found in the dictionary choose visibility flag
+                                    {
+                                        case CharVisFlag.Visible:               //current character is visible - we'll do nothing
+                                            break;
+                                        case CharVisFlag.InVisible:             //current character is invisible
+                                            Visible = false;                    //set visibility of character to false
+                                            break;
+                                        case CharVisFlag.InRgn:                 //current character begins or ends the region of invisible characters
+                                            InvisibleRgn = !InvisibleRgn;       //invert value of the flag that says us that current character is inside invisible region
+                                            Visible = false;                    //but current character is invisible anyway
+                                            break;
+                                    }
+                                }
+                                break;
+                        }
+                    }
+                }
+                return Visible && !InvisibleRgn;                                //return true if character is visible and is not inside the invisible region
+            }
+            #endregion
+        }
         #endregion
 
         #region Structures
+        /// <summary>
+        /// Contains information about the document and specifies the file pointers to various portions that make up the document
+        /// </summary>
+        private struct FIB
+        {
+            //
+            //NOTE: That is a partial structure from [MS-DOC] v20190319.
+            //      I used only the fileds that are needed in this class
+            //
+
+            /// <summary>
+            /// {WD.FIB.base} The FIBbase structure [off.: 0; len.: 32 bytes]
+            /// </summary>
+            internal FIBbase _base;
+
+            /// <summary>
+            /// {WD.FIB.fibRgLw} The FibRgLw97 structure [off.: 64; len.: 88 bytes]
+            /// </summary>
+            internal FibRgLw97 fibRgLw;
+
+            /// <summary>
+            /// {WD.FIB.fibRgFcLcbBlob} The FibRgFcLcb structure [off.: 154; len.: variable]
+            /// </summary>
+            internal FibRgFcLcb fibRgFcLcbBlob;
+
+            /// <summary>
+            /// Indicates whether Fib is clear or not
+            /// NOTE: I added this field for my convenience!
+            /// </summary>
+            internal bool IsClear;
+        }
+
+        /// <summary>
+        /// The FibBase structure
+        /// </summary>
+        private struct FIBbase
+        {
+            //
+            //NOTE: That is a partial structure from [MS-DOC] v20190319.
+            //      I used only the fileds that are needed in this class
+            //
+
+            /// <summary>
+            /// {WD.FIB.FibBase.A-M} Bit-field that specifies a lot of stuff [off.: 10; len.: 2 bytes]
+            /// </summary>
+            internal byte[] AtoM;
+
+            /// <summary>
+            /// {WD.FIB.FibBase.fWhichTblStm (bit 6 (G) of AtoM)} Specifies the Table stream to which the FIB refers (true - 1Table, false - 0Table) [1 bit]
+            /// </summary>
+            internal bool fWhichTblStm;
+        }
+
+        /// <summary>
+        /// The FibRgLw97 structure
+        /// </summary>
+        private struct FibRgLw97
+        {
+            //
+            //NOTE: That is a partial structure from [MS-DOC] v20190319.
+            //      I used only the fileds that are needed in this class
+            //
+
+            /// <summary>
+            /// {WD.Fib.FibRgLw.ccpText} Count of CPs in the Main Document (MUST: >=0) [off.: 12;len.: 4 bytes]
+            /// </summary>
+            internal int ccpText;
+        }
+
+        /// <summary>
+        /// The FibRgFcLcb97 structure
+        /// </summary>
+        private struct FibRgFcLcb97
+        {
+            //
+            //NOTE: That is a partial structure from [MS-DOC] v20190319.
+            //      I used only the fileds that are needed in this class
+            //
+
+            /// <summary>
+            /// {WD.Fib.fibRgFcLcb97.fcClx} Offset of the Clx in the Table stream [off.: 264;len.: 4 bytes]
+            /// </summary>
+            internal uint fcClx;
+
+            /// <summary>
+            /// {WD.Fib.fibRgFcLcb97.lcbClx} Size in bytes of the Clx in the Table stream (MUST >0) [off.: 268;len.: 4 bytes]
+            /// </summary>
+            internal uint lcbClx;
+
+            /// <summary>
+            /// {Fib.FibRgFcLcb97.fcPlcfBteChpx} Offset of PlcBteChpx in the Table stream [off.: 96;len.: 4 bytes]
+            /// </summary>
+            internal uint fcPlcfBteChpx;
+
+            /// <summary>
+            /// {Fib.FibRgFcLcb97.lcbPlcfBteChpx} Size in bytes of PlcBteChpx in the Table Stream [off.: 100;len.: 4 bytes]
+            /// </summary>
+            internal uint lcbPlcfBteChpx;
+        }
+
+        /// <summary>
+        /// The FibRgFcLcb structure
+        /// </summary>
+        private struct FibRgFcLcb
+        {
+            //
+            //NOTE: That is a partial structure from [MS-DOC] v20190319.
+            //      I used only the fileds that are needed in this class
+            //
+
+            /// <summary>
+            /// {WD.FIB.fibRgFcLcbBlob.fibRgFcLcb97} The FibRgFcLcb97 part of the variable length structure FibRgFcLcb
+            /// </summary>
+            internal FibRgFcLcb97 fibRgFcLcb97;
+        }
+
+        /// <summary>
+        /// The Clx structure
+        /// </summary>
+        private struct CLX
+        {
+            /// <summary>
+            /// An array of Prc structures
+            /// </summary>
+            internal Prc[] RgPrc;
+
+            /// <summary>
+            /// A Pcdt structure
+            /// </summary>
+            internal Pcdt pcdt;
+
+            /// <summary>
+            /// Indicates whether Clx is clear or not
+            /// NOTE: I added this field for my convenience!
+            /// </summary>
+            internal bool IsClear;
+        }
+
+        /// <summary>
+        /// The Pcdt structure
+        /// </summary>
+        private struct Pcdt
+        {
+            /// <summary>
+            /// {Clx.Pcdt.clxt} (MUST: 0x02) [off.: 0; len.: 1 byte]
+            /// </summary>
+            internal byte clxt;
+
+            /// <summary>
+            /// {Clx.Pcdt.lcb} Specifies the size of the PlcPcd which follows [off.: 1; len.: 4 bytes]
+            /// </summary>
+            internal uint lcb;
+
+            /// <summary>
+            /// {Clx.Pcdt.PlcPcd} The PlcPcd structure [off.: 5; len.: lcb bytes]
+            /// </summary>
+            internal PlcPcd plcPcd;
+        }
+
+        /// <summary>
+        /// The PlcPcd structure
+        /// </summary>
+        private struct PlcPcd
+        {
+            /// <summary>
+            /// {Clx.Pcdt.PlcPcd.aCP} An array of CPs that specifies the starting points of text ranges [off.: 0; len.: variable]
+            /// </summary>
+            internal uint[] aCP;
+
+            /// <summary>
+            /// {Clx.Pcdt.PlcPcd.aPcd} An array of Pcds that specify the location of text in the WordDocument stream and any additional properties of text [off.: variable; len.: variable]
+            /// </summary>
+            internal Pcd[] aPcd;
+        }
+
+        /// <summary>
+        /// Specifies the set of properties for document content that is referenced by a Pcd structure
+        /// </summary>
+        private struct Prc
+        {
+            /// <summary>
+            /// (MUST: 0x01) [1 byte]
+            /// </summary>
+            internal byte clxt;
+
+            /// <summary>
+            /// A PrcData structure that specifies a set of properties
+            /// </summary>
+            internal PrcData data;
+        }
+
+        /// <summary>
+        /// The PrcData structure
+        /// </summary>
+        private struct PrcData
+        {
+            /// <summary>
+            /// {Clx.Prc.cbGrpprl} Size in bytes of the GrpPrl which follows (MUST be less or equal to 0x3FA2) [off.: 0;len.: 2 bytes]
+            /// </summary>
+            internal short cbGrpprl;
+
+            /// <summary>
+            /// {Clx.Prc.GrpPrl} An array of Prl structures [off.: 2; len.: cbGrpprl bytes]
+            /// </summary>
+            internal Prl[] GrpPrl;
+        }
+
         /// <summary>
         /// Specifies the location of text in the WordDocument stream and additional properties for this text
         /// </summary>
@@ -973,33 +1446,33 @@ namespace WordReader
             /// <summary>
             /// Prm structure. Either Prm0 (if fComplex = false) or Prm1 (if fComplex = true) [2 bytes]
             /// </summary>
-            internal Prm prm;
+            internal Prm prm;            
+        }
+
+        /// <summary>
+        /// Prm structure. Either Prm0 (if fComplex = false) or Prm1 (if fComplex = true) [2 bytes]
+        /// </summary>
+        private struct Prm
+        {
+            /// <summary>
+            /// Bit that specifies what is the type of this Prm: 0 or 1 [1 bit]
+            /// </summary>
+            internal bool fComplex;
 
             /// <summary>
-            /// Prm structure. Either Prm0 (if fComplex = false) or Prm1 (if fComplex = true) [2 bytes]
+            /// Part of Prm0 structure. Specifies the Sprm to apply to the document [7 bits]
             /// </summary>
-            internal struct Prm
-            {
-                /// <summary>
-                /// Bit that specifies what is the type of this Prm: 0 or 1 [1 bit]
-                /// </summary>
-                internal bool fComplex;
+            internal byte Prm0_isprm;
 
-                /// <summary>
-                /// Part of Prm0 structure. Specifies the Sprm to apply to the document [7 bits]
-                /// </summary>
-                internal byte Prm0_isprm;
+            /// <summary>
+            /// Part of Prm0 structure. Operand for the Sprm specified by isprm [1 byte]
+            /// </summary>
+            internal byte Prm0_val;
 
-                /// <summary>
-                /// Part of Prm0 structure. Operand for the Sprm specified by isprm [1 byte]
-                /// </summary>
-                internal byte Prm0_val;
-
-                /// <summary>
-                /// Part of Prm1 structure. Zero-based index of a Prc in ClxRgPrc [15 bits]
-                /// </summary>
-                internal ushort Prm1_igrpprl;
-            }
+            /// <summary>
+            /// Part of Prm1 structure. Zero-based index of a Prc in ClxRgPrc [15 bits]
+            /// </summary>
+            internal ushort Prm1_igrpprl;
         }
 
         /// <summary>
@@ -1037,7 +1510,7 @@ namespace WordReader
             /// <summary>
             /// MUST be ignored [10 bits]
             /// </summary>
-            ushort unused;
+            internal ushort unused;
         }
 
         /// <summary>
@@ -1128,6 +1601,27 @@ namespace WordReader
             /// [3 bits]
             /// </summary>
             internal byte spra;     //Formula to calculate this field: spra = sprm / 8192
+
+            /// <summary>
+            /// A 16-bit integer representation of the current Sprm [2 bytes]
+            /// </summary>
+            internal ushort sprm;
+        }
+
+        /// <summary>
+        /// Maps the offsets of text in the WordDocument stream to the character properties of that text
+        /// </summary>
+        private struct PLCBTECHPX
+        {
+            /// <summary>
+            /// {PlcBteChpx.aFC} Specifies an offset in the WordDocument stream where text begins [off.: 0; len.: variable]
+            /// </summary>
+            internal uint[] aFC;
+
+            /// <summary>
+            /// {PlcBteChps.aPnFkpChpx} An array of PnFkpChpx structures [off.: variable; len.: variable]
+            /// </summary>
+            internal PnFkpChpx[] aPnBteChpx;
         }
         #endregion
 
@@ -1137,6 +1631,10 @@ namespace WordReader
         private MemoryStream WDStream = null;       //WordDocument stream (Main Document)
         private string WDStreamPath = null;         //Path to WordDocument stream if it is read from CFB (Main Document)
         private MemoryStream TableStream = null;    //Table stream (of the Main Document)
+        private FIB Fib;                            //FIB in the WDStream
+        private CLX Clx;                            //Clx in the TableStream
+        private PLCBTECHPX PlcBteChpx;              //PlcBteChpx in the Table stream
+        private ChpxFkp[] aChpxFkp;                 //array of ChpxFkp structures in the WDStream
         #endregion
 
         #region protected internal
@@ -1172,6 +1670,9 @@ namespace WordReader
             BinaryReader fileReader = new BinaryReader(fileStream, Encoding.Unicode);   //create BinaryReader for the fileStream
             CFB = new CompoundFileBinary(fileReader);                                   //create CompoundFileBinary for fileReader
             if (CFB.CFHeaderIsOK) docIsOK = checkDOC();                                 //if file header is OK, we will check whether this file is a Word Binary File
+
+            Fib.IsClear = true;                                                         //FIB is not read yet
+            Clx.IsClear = true;                                                         //Clx is not read yet
         }
 
         /// <summary>
@@ -1185,6 +1686,9 @@ namespace WordReader
             BinaryReader fileReader = new BinaryReader(fileStream, Encoding.Unicode);   //create BinaryReader for the fileStream
             CFB = new CompoundFileBinary(fileReader);                                   //create CompoundFileBinary for fileReader
             if (CFB.CFHeaderIsOK) docIsOK = checkDOC();                                 //if file header is OK, we will check whether this file is a Word Binary File
+
+            Fib.IsClear = true;                                                         //FIB is not read yet
+            Clx.IsClear = true;                                                         //Clx is not read yet
         }
         #endregion
 
@@ -1247,9 +1751,407 @@ namespace WordReader
         /// <param name="op">Number where to check bit</param>
         /// <param name="bit">Bit to be checked starting from 0</param>
         /// <returns>TRUE if bit is 1, FALSE if bit is 0</returns>
+        private bool checkBit(ushort op, int bit)
+        {
+            return ((op & (1 << bit)) == 0) ? false : true;
+        }
+
+        /// <summary>
+        /// Checks specified bit in specified number
+        /// </summary>
+        /// <param name="op">Number where to check bit</param>
+        /// <param name="bit">Bit to be checked starting from 0</param>
+        /// <returns>TRUE if bit is 1, FALSE if bit is 0</returns>
         private bool checkBit(byte op, int bit)
         {
             return ((op & (1 << bit)) == 0) ? false : true;
+        }
+
+        /// <summary>
+        /// Read FIB structure from WDStream
+        /// </summary>
+        /// <returns>TRUE if successfully read and found no errors in FIB</returns>
+        private bool readFIB()
+        {
+            if (WDStream == null)                                                       //if WordDocument stream is not read from CFB
+            {
+                clearFIB();                                                             //clear all the FIB fields
+                return false;                                                           //return false
+            }
+
+            BinaryReader brWDStream = new BinaryReader(WDStream);                       //create BinaryReader for WDStream
+
+            //read Fib.base
+            WDStream.Seek(10, SeekOrigin.Begin);                                        //seek WDStream to the offset of bitsAtoM
+            Fib._base.AtoM = brWDStream.ReadBytes(2);                                   //read 2 bytes from WDStream
+            Fib._base.fWhichTblStm = checkBit(Fib._base.AtoM[0], 6);                    //read fWhichTblStm
+
+            //read Fib.fibRgLw
+            WDStream.Seek(76, SeekOrigin.Begin);                                        //seek WDStream to the location of ccpText
+            Fib.fibRgLw.ccpText = brWDStream.ReadInt32();                               //read ccpText from WDStream
+
+            //read Fib.fibRgFcLcbBlob.fibRgFcLcb97
+            WDStream.Seek(418, SeekOrigin.Begin);                                       //seek WDStream to the offset of fcClx
+            Fib.fibRgFcLcbBlob.fibRgFcLcb97.fcClx = brWDStream.ReadUInt32();            //read fcClx
+            Fib.fibRgFcLcbBlob.fibRgFcLcb97.lcbClx = brWDStream.ReadUInt32();           //read lcbClx
+            if (Fib.fibRgFcLcbBlob.fibRgFcLcb97.lcbClx <= 0) return false;              //lcbClx must be greater than zero. If it's not there are errors in FIB
+            WDStream.Seek(250, SeekOrigin.Begin);                                       //seek WDStream to the offset of fcPlcfBteChpx
+            Fib.fibRgFcLcbBlob.fibRgFcLcb97.fcPlcfBteChpx = brWDStream.ReadUInt32();    //read fcPlcfBteChpx
+            Fib.fibRgFcLcbBlob.fibRgFcLcb97.lcbPlcfBteChpx = brWDStream.ReadUInt32();   //read lcbPlcfBteChpx
+
+            Fib.IsClear = false;                                                        //FIB is not clear now
+
+            return true;
+        }
+
+        /// <summary>
+        /// Clear all fields of the memory representation of the FIB structure from WDStream
+        /// </summary>
+        private void clearFIB()
+        {
+            //just set all fields of Fib to default values            
+            Fib._base.AtoM = null;
+            Fib._base.fWhichTblStm = false;
+            Fib.fibRgLw.ccpText = 0;
+            Fib.fibRgFcLcbBlob.fibRgFcLcb97.fcClx = 0;
+            Fib.fibRgFcLcbBlob.fibRgFcLcb97.lcbClx = 0;
+            Fib.fibRgFcLcbBlob.fibRgFcLcb97.fcPlcfBteChpx = 0;
+            Fib.fibRgFcLcbBlob.fibRgFcLcb97.lcbPlcfBteChpx = 0;
+
+            //FIB is clear now
+            Fib.IsClear = true;
+        }
+
+        /// <summary>
+        /// Clear all fields of the memory representation of the Clx structure from TableStream 
+        /// </summary>
+        private void clearClx()
+        {
+            //just setting all the fields in Clx to its default values
+            Clx.RgPrc = null;
+            Clx.pcdt.clxt = 0;
+            Clx.pcdt.lcb = 0;
+            Clx.pcdt.plcPcd.aCP = null;
+            Clx.pcdt.plcPcd.aPcd = null;
+
+            //Clx is clear now
+            Clx.IsClear = true;
+        }
+
+        /// <summary>
+        /// Read Clx structure from TableStream
+        /// </summary>
+        /// <returns></returns>
+        private bool readClx()
+        {
+            if (TableStream == null)                                    //if TableStream is not read from the file
+            {
+                clearClx();                                             //clear Clx
+                return false;                                           //return false
+            }
+
+            if(Fib.IsClear)                                             //if FIB is not read the WordDocument stream
+            {
+                if (!readFIB())                                         //trying to read FIB, if couldn't
+                {
+                    clearClx();                                         //clear Clx
+                    return false;                                       //return false
+                }
+            }
+
+            BinaryReader brTableStream = new BinaryReader(TableStream); //create BinaryReader for TableStream
+
+            TableStream.Seek(Fib.fibRgFcLcbBlob.fibRgFcLcb97.fcClx, SeekOrigin.Begin);          //seek TableStream to the offset of Clx
+            byte[] clx = brTableStream.ReadBytes((int)Fib.fibRgFcLcbBlob.fibRgFcLcb97.lcbClx);  //read Clx from the Table stream
+
+            //get RgPrc from clx
+            MemoryStream msclx = new MemoryStream(clx);                                         //create MemoryStream from Clx
+            BinaryReader brclx = new BinaryReader(msclx);                                       //create BinaryReader for msClx
+            byte clxt = brclx.ReadByte();                                                       //read first byte from brClx. It'll be Clx.Prc.clxt or Clx.Pcdt.clxt
+            while (clxt != 0x02)                                                                //while we haven't reached the beginning of the Pcdt
+            {
+                if (clxt != 0x01)                                                               //if that is not Prc then something is wrong with the Clx - we can't read it
+                {
+                    clearClx();                                                                 //clear Clx
+                    return false;                                                               //and return false
+                }
+                if (Clx.RgPrc == null) Clx.RgPrc = new Prc[1];                                  //allocate memory for RgPrc
+                else Array.Resize(ref Clx.RgPrc, Clx.RgPrc.Length + 1);                         //or reallocate it if already done
+                int curRgPrcPos = Clx.RgPrc.Length - 1;                                         //current position in RgPrc array (index of the last item)
+                Clx.RgPrc[curRgPrcPos].clxt = clxt;                                             //save clxt to RgPrc
+                Clx.RgPrc[curRgPrcPos].data.cbGrpprl = brclx.ReadInt16();                       //read cdGrpprl from brClx
+                if (Clx.RgPrc[curRgPrcPos].data.cbGrpprl > 0x3FA2)                              //if cbGrpprl is greater than 0x3FA2 then we can't read the Clx - we can't read it
+                {
+                    clearClx();                                                                 //clear Clx
+                    return false;                                                               //return false
+                }
+                short leftToRead = Clx.RgPrc[curRgPrcPos].data.cbGrpprl;                        //number of bytes left to read from GrpPrl
+                while (leftToRead > 0)                                                          //while there are bytes left unread in GrpPrl
+                {
+                    if (Clx.RgPrc[curRgPrcPos].data.GrpPrl == null)
+                        Clx.RgPrc[curRgPrcPos].data.GrpPrl = new Prl[1];                        //allocate memory for GrpPrl
+                    else
+                        Array.Resize(ref Clx.RgPrc[curRgPrcPos].data.GrpPrl, 
+                            Clx.RgPrc[curRgPrcPos].data.GrpPrl.Length + 1);                     //or reallocate it if already done
+                    int curGrpPrlPos = Clx.RgPrc[curRgPrcPos].data.GrpPrl.Length - 1;           //current position in GrpPrl array (index of the last item)
+                    short readBytes = readSprm(
+                        ref Clx.RgPrc[curRgPrcPos].data.GrpPrl[curGrpPrlPos], 
+                        ref brclx);                                                             //read current Prl from brClx
+                    if (readBytes == 0)                                                         //if couldn't read Prl then Clx is corrupted and we can't read it
+                    {
+                        clearClx();                                                             //clear Clx
+                        return false;                                                           //and return false
+                    }
+                    leftToRead -= readBytes;                                                    //decrease number of bytes left to read from GrpPrl by length of currently read Prl
+                }
+                clxt = brclx.ReadByte();                                                        //read the value of the next clxt
+            }
+
+            //read Pcdt and PlcPcd from Clx
+            Clx.pcdt.clxt = clxt;                                                               //save last read clxt to Pcdt
+            Clx.pcdt.lcb = brclx.ReadUInt32();                                                  //read Pcdt.lcb
+            byte[] plcPcd = brclx.ReadBytes((int)Clx.pcdt.lcb);                                 //read PlcPcd from Clx
+            brclx.Close();                                                                      //close brclx and msclx - we don't need them anymore
+
+            //retrieve two arrays from PlcPcd: aCP and aPcd
+            int n = ((int)Clx.pcdt.lcb - 4) / (8 + 4);                                          //number of data elements in PlcPcd (number of items in aPcd) (and number of items in aCP is (n+1))
+            Clx.pcdt.plcPcd.aCP = new uint[n + 1];                                              //allocating memory for aCP - the array of CP elements that specifies the starting points of text ranges 
+            Clx.pcdt.plcPcd.aPcd = new Pcd[n];                                                  //allocating memory for aPcd - the array of Pcds that specifies the location of text in WordDocument Stream
+            MemoryStream msplcPcd = new MemoryStream(plcPcd);                                   //create MemoryStream for PlcPcd
+            BinaryReader brplcPsd = new BinaryReader(msplcPcd);                                 //create BinaryReader for msPlcPcd
+            for (int i = 0; i < (n + 1); i++)
+                Clx.pcdt.plcPcd.aCP[i] = brplcPsd.ReadUInt32();                                 //read aCP from PlcPcd
+            for (int i = 0; i < n; i++)                                                         //read aPcd from PlcPcd
+            {
+                msplcPcd.Seek(2, SeekOrigin.Current);                           //seek 2 bytes from current (to skip data that we do not need)
+                Clx.pcdt.plcPcd.aPcd[i].fc.fc = brplcPsd.ReadUInt32();          //read FcCompressed.fc
+                Clx.pcdt.plcPcd.aPcd[i].fc.fCompressed = 
+                    checkBit(Clx.pcdt.plcPcd.aPcd[i].fc.fc, 30);                //retrieve FcCompressed.fCompressed
+                Clx.pcdt.plcPcd.aPcd[i].fc.fc &= 0x3FFFFFFF;                    //use bitwise and to set bits 30 and 31 to 0 (because they are not for fc in FcCompressed)
+                Clx.pcdt.plcPcd.aPcd[i].prm.Prm0_isprm = brplcPsd.ReadByte();   //read first byte of Prm structure, which is isprm
+                Clx.pcdt.plcPcd.aPcd[i].prm.fComplex =
+                    checkBit(Clx.pcdt.plcPcd.aPcd[i].prm.Prm0_isprm, 0);        //retrieve prm.fComplex bit
+                if (Clx.pcdt.plcPcd.aPcd[i].prm.fComplex)                       //fComplex = 1 - we'll use Prm1
+                {
+                    msplcPcd.Seek(-1, SeekOrigin.Current);                      //seek -1 byte from current (to begin reading Prm1)
+                    Clx.pcdt.plcPcd.aPcd[i].prm.Prm1_igrpprl = 
+                        brplcPsd.ReadUInt16();                                  //read igrpprl
+                    Clx.pcdt.plcPcd.aPcd[i].prm.Prm1_igrpprl >>= 1;             //shift igrpprl 1 bit to the left (that bit is fComplex - bit 0)
+                    Clx.pcdt.plcPcd.aPcd[i].prm.Prm0_isprm = 0;                 //set Prm0.isprm to zero just for case
+                    Clx.pcdt.plcPcd.aPcd[i].prm.Prm0_val = 0;                   //set Prm0.val to zero just for case
+                }
+                else                                                            //fComplex =0 - we'll use Prm0
+                {
+                    Clx.pcdt.plcPcd.aPcd[i].prm.Prm0_isprm >>= 1;               //shift isprm 1 bit to the left (that bit is fComplex - bit 0)
+                    Clx.pcdt.plcPcd.aPcd[i].prm.Prm0_val = brplcPsd.ReadByte(); //read Prm0.val
+                }
+            }
+            brplcPsd.Close();                                                   //we don't need brPlcPsd and msPlcPsd anymore and can close them
+
+            Clx.IsClear = false;                                        //Clx is not clear now
+
+            return true;                                                //return true
+        }
+
+        /// <summary>
+        /// Read one Sprm from BinaryReader to Prl (stream of the BinaryReader must be set to the offset of Sprm)
+        /// Moves the position in stream
+        /// </summary>
+        /// <param name="prl">Prl where Sprm is needed to be read</param>
+        /// <param name="br">BinaryReader from which Sprm is needed to be read (set to the offset of Sprm</param>
+        /// <returns>Number of bytes read (e.g. size of read Sprm in bytes) or zero if read is not successfull<returns>
+        private short readSprm(ref Prl prl, ref BinaryReader br)
+        {
+            short bytesRead = 0;                                                    //number of bytes read from br
+
+            if (br == null) return 0;                                               //if br is empty - we couldn't read Sprm
+
+            //read sprm and interpret its fields
+            ushort sprm = br.ReadUInt16();                                          //read Sprm as ushort
+            bytesRead += 2;                                                         //increased number of read bytes
+            prl.sprm.sprm = sprm;                                                   //save the 16-bits representation of currently read sprm
+            prl.sprm.ispmd = (ushort)(sprm & 0x01FF);                               //use formula to calculate ispmd
+            prl.sprm.fSpec = checkBit((ushort)(sprm / 512), 0);                     //use formula to calculate fSpec
+            prl.sprm.sgc = (byte)((sprm / 1024) & 0x0007);                          //use formula to calculate sgc
+            prl.sprm.spra = (byte)(sprm / 8192);                                    //use formula to calculet spra
+
+            //read operand for the current sprm
+            uint opSize = 1;                                                        //size of the operand
+            switch (prl.sprm.spra)                                                  //switch between sizes of the current operand specified by spra
+            {
+                case 0: case 1: opSize = 1; break;                                  //spra = 0 OR 1: size is 1 byte
+                case 2: case 4: case 5: opSize = 2; break;                          //spra = 2, 4 OR 5: size is 2 bytes
+                case 7: opSize = 3; break;                                          //spra = 7: size is 3 bytes
+                case 3: opSize = 4; break;                                          //spra = 3: size is 4 bytes
+                case 6:                                                             //spra = 6: size depends on ispdm
+                    if (prl.sprm.sgc == 5 && prl.sprm.ispmd == 0x08)                //if Sprm is sprmTDefTable
+                    {
+                        //operand is TDefTableOperand structure
+                        opSize = br.ReadUInt16();                                   //{TDefTableOperand.cb} Number of bytes used by the remainder of this structure, incremented by 1 [2 bytes]
+                        opSize++;                                                   //to get the full size of this operand
+                        br.BaseStream.Seek(-2, SeekOrigin.Current);                 //seek stream back to the offset of the current operand
+                    }
+                    else if (prl.sprm.sgc == 1 && prl.sprm.ispmd == 0x15)           //if Sprm is sprmPChgTabs
+                    {
+                        //operand is PChgTabsOperand structure
+                        opSize = br.ReadByte();                                     //{PChgTabsOperand.cb} Size in bytes of this operand (MUST >=2 AND <=255) [1 byte]
+                        if (opSize < 2)                                             //if cb is less than 2, then we can't read this sprm
+                        {
+                            //set all fields of sprm to default values
+                            prl.operand = null;
+                            prl.sprm.sprm = 0;
+                            prl.sprm.fSpec = false;
+                            prl.sprm.spra = 0;
+                            prl.sprm.sgc = 0;
+                            prl.sprm.ispmd = 0;
+                            //seek stream back to the starting offset
+                            br.BaseStream.Seek(-(bytesRead + 1), SeekOrigin.Current);
+                            //return 0
+                            return 0;
+                        }
+                        if (opSize == 255)                                          //if cb == 255 
+                        {
+                            //reading the operand further
+                            byte pctdcTabs = br.ReadByte();                         //{PChgTabsDelClose.cTabs} Number of records in rgdxaDel and rgdxaClose (MUST >=0 AND <=64) [1 byte]
+                            br.BaseStream.Seek(pctdcTabs * 4, SeekOrigin.Current);  //seek stream to the offset of PChgTabsAdd
+                            byte pctaTabs = br.ReadByte();                          //{PChgTabsAdd.cTabs} Number of records in rgdxaAdd and rgtbdAdd (MUST <=64) [1 byte]
+                            opSize = (uint)(4 * pctdcTabs + 3 * pctdcTabs);         //calculated size of this operand without the first byte
+                            br.BaseStream.Seek(-2, SeekOrigin.Current);             //seek stream back
+                        }
+                        opSize++;                                                   //to get the full size of this operand
+                        br.BaseStream.Seek(-1, SeekOrigin.Current);                 //seek stream back to the offset of the current operand
+                    }
+                    else                                                            //for other Sprms
+                    {
+                        //read first byte of the operand
+                        opSize = br.ReadByte();                                     //read size of this operand without the first byte
+                        opSize++;                                                   //to get the full size of the operand
+                        br.BaseStream.Seek(-1, SeekOrigin.Current);                 //seek stream back to the offset of this operand
+                    }
+                    break;
+                default: break;                                                     //in other cases of spra assume size as 1 byte
+            }
+
+            prl.operand = br.ReadBytes((int)opSize);                                //{Prl.operand} Operand for the sprm [variable]
+            bytesRead += (short)opSize;                                             //increase number of read bytes by the size of operand
+
+            return bytesRead;                                                       //return number of bytes read
+        }
+
+        /// <summary>
+        /// Read PlcBteChpx structure from Table stream
+        /// </summary>
+        /// <returns>TRUE if successfully read</returns>
+        private bool readPlcBteChpx()
+        {
+            if(TableStream==null)                                                               //if TableStream is not read yet
+            {
+                //set all PlcBteChpx fields to default values and return false
+                PlcBteChpx.aFC = null;
+                PlcBteChpx.aPnBteChpx = null;
+                return false;
+            }
+
+            BinaryReader brTableStream = new BinaryReader(TableStream);                         //create BinaryReader for TableStream
+
+            TableStream.Seek(Fib.fibRgFcLcbBlob.fibRgFcLcb97.fcPlcfBteChpx, SeekOrigin.Begin);  //seek TableStream to the offset of PlcBteChpx
+            byte[] plcBteChpx = brTableStream.ReadBytes(
+                (int)Fib.fibRgFcLcbBlob.fibRgFcLcb97.lcbPlcfBteChpx);                           //read PlcBteChpx from the Table stream
+
+            //retrieve two arrays from PlcBteChpx: aFC and aPnBteChpx
+            int n = ((int)Fib.fibRgFcLcbBlob.fibRgFcLcb97.lcbPlcfBteChpx - 4) / (4 + 4);        //number of data elements in PlcBteChpx (number of items in aPnBteCHpx) (and number of items in aFC is (n+1))
+            PlcBteChpx.aFC = new uint[n + 1];                                                   //allocate memory for aFC
+            PlcBteChpx.aPnBteChpx = new PnFkpChpx[n];                                           //allocate memory for aPnBteChpx
+            MemoryStream msplcBteChpx = new MemoryStream(plcBteChpx);                           //create MemoryStream for plcBteChpx
+            BinaryReader brplcBteChpx = new BinaryReader(msplcBteChpx);                         //create BinaryReader for msplcBteChpx
+            for (int i = 0; i < n + 1; i++) PlcBteChpx.aFC[i] = brplcBteChpx.ReadUInt32();      //read aFC from plcBteChpx
+            for (int i = 0; i < n; i++)
+            {
+                PlcBteChpx.aPnBteChpx[i].pn = brplcBteChpx.ReadUInt32();                        //read aPnBteChps.pn from PlcBteChpx
+                PlcBteChpx.aPnBteChpx[i].pn &= 0x3FFFFF;                                        //use bitwise AND to drop 10 MSB in aPnBteChpx[i].pn - they're not used and must ne ignored
+                PlcBteChpx.aPnBteChpx[i].unused = 0;                                            //initialise aPnBteChpx.unused to zero
+            }
+            brplcBteChpx.Close();                                                               //we don't need brPlcBteChpx & msPlcBteChpx anymore and can close them
+
+            return true;                                                                        //return true
+        }
+
+        /// <summary>
+        /// Read whole array of ChpxFkp structures from WordDocument stream
+        /// </summary>
+        /// <returns>TRUE if successfully read</returns>
+        private bool readChpxFkp()
+        {
+            if (WDStream == null)                                                           //if WDStream not read yet then we can't read CHpxFkp
+            {
+                aChpxFkp = null;                                                            //set aChpxFkp to null
+                return false;                                                               //return false
+            }
+
+            aChpxFkp = new ChpxFkp[PlcBteChpx.aPnBteChpx.Length];                           //allocate memory for aChpxFkp
+
+            BinaryReader brWDStream = new BinaryReader(WDStream);                           //create BinaryReader for WDStream
+
+            for (int i = 0; i < aChpxFkp.Length; i++)                                       //moving through all the ChpxFkp-s
+            {
+                WDStream.Seek(PlcBteChpx.aPnBteChpx[i].pn * 512, SeekOrigin.Begin);         //seek WDStream to the beginning of current ChpxFkp
+                byte[] aChpx = brWDStream.ReadBytes(512);                                   //read ChpxFkp
+
+                MemoryStream msChpx = new MemoryStream(aChpx);                              //create MemoryStream for ChpxFkp
+                BinaryReader brChpx = new BinaryReader(msChpx);                             //create BinaryReader for msChpx
+
+                msChpx.Seek(-1, SeekOrigin.End);                                            //seek msChpx to the last byte (offset of crun)
+                aChpxFkp[i].crun = brChpx.ReadByte();                                       //read crun
+                aChpxFkp[i].rgfc = new uint[aChpxFkp[i].crun + 1];                          //allocate memory for aChpxFkp.rgfc
+                aChpxFkp[i].rgb = new byte[aChpxFkp[i].crun];                               //allocate memory for aChpxFkp.rgb
+                aChpxFkp[i].chpx = new Chpx[aChpxFkp[i].crun];                              //allocate memory for aChpxFkp.chpx
+
+                msChpx.Seek(0, SeekOrigin.Begin);                                           //seek msChpx to the beginning
+                for (int j = 0; j < aChpxFkp[i].crun + 1; j++)
+                    aChpxFkp[i].rgfc[j] = brChpx.ReadUInt32();                              //read rgfc
+                for (int j = 0; j < aChpxFkp[i].crun; j++)
+                    aChpxFkp[i].rgb[j] = brChpx.ReadByte();                                 //read rgb
+
+                for (int j = 0; j < aChpxFkp[i].crun; j++)                                  //moving through all the rgb-s
+                {
+                    if (aChpxFkp[i].rgb[j] == 0)                                            //if rgb == 0 then there is no Chpx associated with this element or rgb
+                    {
+                        aChpxFkp[i].chpx[j].cb = 0;                                         //then ChpxFkp.chpx.cb = 0
+                        aChpxFkp[i].chpx[j].grpprl = null;                                  //and ChpxFkp.chpx.grpprl = null
+                    }
+                    else                                                                    //if Chpx.rgb != 0 then there is Chpx associated with this element of rgb
+                    {
+                        msChpx.Seek(aChpxFkp[i].rgb[j] * 2, SeekOrigin.Begin);              //seek msChpx to offset of the current chpx
+                        aChpxFkp[i].chpx[j].cb = brChpx.ReadByte();                         //read Chpx.cb
+                        if (aChpxFkp[i].chpx[j].cb != 0)                                    //if there is grpprl in this chpx then we'll read grpprl
+                        {
+                            byte cbLeftBytes = aChpxFkp[i].chpx[j].cb;                      //number of bytes left to read from the current grpprl
+                            while (cbLeftBytes > 0)                                         //reading while there are Prls unread
+                            {
+                                if (aChpxFkp[i].chpx[j].grpprl == null)
+                                    aChpxFkp[i].chpx[j].grpprl = new Prl[1];                //allocate memory for grpprl
+                                else
+                                    Array.Resize(
+                                        ref aChpxFkp[i].chpx[j].grpprl,
+                                        aChpxFkp[i].chpx[j].grpprl.Length + 1);             //or reallocate it if already done
+                                int curPrlPos = aChpxFkp[i].chpx[j].grpprl.Length - 1;      //current position in grpprl array (index of the last item)
+                                short readBytes = readSprm(
+                                        ref aChpxFkp[i].chpx[j].grpprl[curPrlPos],
+                                        ref brChpx);                                        //read current Prl
+                                if (readBytes == 0)                                         //if couldn't read current Prl then we cannot read aChpxFkp
+                                {
+                                    aChpxFkp = null;                                        //set aChpxFkp to null
+                                    return false;                                           //and return false
+                                }
+                                cbLeftBytes -= (byte)readBytes;                             //decrease number of bytes left to read
+                            }
+                        }
+                        else aChpxFkp[i].chpx[j].grpprl = null;                             //if there is no grpprl in this chpx then chpx.grpprl = null
+                    }
+                }
+                brChpx.Close();                                                             //close brChpx - we do not need it anymore
+            }
+            return true;                                                                    //return true
         }
         #endregion
 
@@ -1260,14 +2162,6 @@ namespace WordReader
         /// <returns>String containing the document text (null if couldn't)</returns>
         protected internal string getText()
         {
-            //
-            //NOTE: We will not read all the structures from the document. We'll just read those that are needed to retrieve text from it.
-            //      That is why there will be variables in this method which are read directly from the file streams.
-            //      I'll give them names according to [MS-DOC] v20190319 documentation.
-            //      And the structure of comments for them will be:
-            //      {full structure path from the stream to the variable} Text description of the meaning of variable [off.: offset from beginning of the stream; len.: length in bytes]
-            //
-
             if (CFB == null) return null;                                                       //if CompoundFileBinary was not created there is nothing to read
 
             string[] Paths = null;                                                              //paths to the found streams in the CFB
@@ -1296,213 +2190,26 @@ namespace WordReader
 
             BinaryReader brWDStream = new BinaryReader(WDStream);                               //create BinaryReader for WDStream
 
+            if(Fib.IsClear)                                                                     //if FIB isn't read yet
+                if (!readFIB()) return null;                                                    //try to read FIB from WDStream (return null if couldn't - we cannot retrieve text)
+
             if (TableStream == null)                                                            //if Table stream was not read from the CFB
             {
-                //first of all we will determine which Table stream to use: 1Table or 0Table
-                byte[] AtoM = null;                                                             //{WD.FIB.FibBase.A-M} Bit-field that specifies a lot of stuff [off.: 10; len.: 2 bytes]
-                WDStream.Seek(10, SeekOrigin.Begin);                                            //seek WDStream to the offset of bitsAtoM
-                AtoM = brWDStream.ReadBytes(2);                                                 //read 2 bytes from WDStream
-                bool fWhichTblStm = checkBit(AtoM[0], 6);                                       //{WD.FIB.FibBase.fWhichTblStm (bit 6 (G) of AtoM)}.
-                                                                                                //Specifies the Table stream to which the FIB refers (true - 1Table, false - 0Table)
-
-                //now we will generate path to the Table stream and read it from CFB
+                //generate path to the Table stream and read it from CFB
                 Path = WDStreamPath.Substring(0, WDStreamPath.LastIndexOf('\\') + 1);           //Table stream should be located in the same storage as WordDocument stream
-                Path += (fWhichTblStm) ? "1Table" : "0Table";                                   //add the name of the Table stream to Path depending on the value of the bit fWhichTblStm from FIB
+                Path += (Fib._base.fWhichTblStm) ? "1Table" : "0Table";                         //add the name of the Table stream to Path depending on the value of the bit fWhichTblStm from FIB
                 TableStream = CFB.getStream(Path);                                              //get Table stream from CFB
                 if (TableStream == null) return null;                                           //if Table stream was not found we won't be able to read text from file
             }
 
             BinaryReader brTableStream = new BinaryReader(TableStream);                         //create BinaryReader for TableStream
 
-            //get the number of symbols in the Main Document text
-            int ccpText = 0;                                                                    //{WD.Fib.FibRgLw.ccpText} Count of CPs in the Main Document (MUST: >=0) [off.: 76;len.: 4 bytes]
-            WDStream.Seek(76, SeekOrigin.Begin);                                                //seek WDStream to the location of ccpText
-            ccpText = brWDStream.ReadInt32();                                                   //read ccpText from WDStream
+            if(Clx.IsClear)                                                                     //is Clx isn't read yet
+                if (!readClx()) return null;                                                    //try to read Clx from TableStream (return null if couldn't - we cannot retrieve text)
 
-            //get the Clx from Table stream
-            WDStream.Seek(418, SeekOrigin.Begin);                                               //seek WDStream to the offset of fcClx
-            uint fcClx = brWDStream.ReadUInt32();                                               //{WD.Fib.fibRgFcLcb97.fcClx} Offset of the Clx in the Table stream [off.: 418;len.: 4 bytes]
-            uint lcbClx = brWDStream.ReadUInt32();                                              //{WD.Fib.fibRgFcLcb97.lcbClx} Size in bytes of the Clx in the Table stream (MUST >0) [off.: 422;len.: 4 bytes]
-            if (lcbClx <= 0) return null;                                                       //lcbClx must be greater than zero. If it's not we can't read the file
-            TableStream.Seek(fcClx, SeekOrigin.Begin);                                          //seek TableStream to the offset of Clx
-            byte[] Clx = brTableStream.ReadBytes((int)lcbClx);                                  //read Clx from the Table stream
+            if (!readPlcBteChpx()) return null;                                                 //try to read PlcBteChpx from the TableStream (return null if couldn't - we cannot retrieve text)
 
-            //get PlcPcd from Clx
-            MemoryStream msClx = new MemoryStream(Clx);                                         //create MemoryStream from Clx
-            BinaryReader brClx = new BinaryReader(msClx);                                       //create BinaryReader for msClx
-            byte clxt = brClx.ReadByte();                                                       //{Clx.Prc.clxt OR Clx.Pcdt.clxt} First byte of the Prc and Pcdt (MUST: 0x01 for Prc OR 0x02 for Pcdt) [off.: variable;len.: 1 byte]
-            while (clxt != 0x02)                                                                //while we haven't reached the beginning of the Pcdt
-            {
-                if (clxt != 0x01) return null;                                                  //if that is not Prc then something is wrong with the file - we can't read it
-                short cbGrpprl = brClx.ReadInt16();                                             //{Clx.Prc.cbGrpprl} Size in bytes of the GrpPrl which follows (MUST <= 0x3FA2) [off.: variable;len.: 2 bytes]
-                if (cbGrpprl > 0x3FA2) return null;                                             //if cbGrpprl is greater than 0x3FA2 then we can't read the file - it's corrupted
-                msClx.Seek(cbGrpprl, SeekOrigin.Current);                                       //seek cbGrpprl bytes from the current offset
-                clxt = brClx.ReadByte();                                                        //read the value of the next clxt
-            }
-            uint lcb = brClx.ReadUInt32();                                                      //{Clx.Pcdt.lcb} Size in bytes of the PlcPcd which follows [off.: variable,len.: 4 bytes]
-            byte[] PlcPcd = brClx.ReadBytes((int)lcb);                                          //read PlcPcd from Clx
-            brClx.Close();                                                                      //close BinaryReader and MemoryStream for Clx
-
-            //retrieve two arrays from PlcPcd: aCP and aPcd
-            int n = ((int)lcb - 4) / (8 + 4);                                                   //number of data elements in PlcPcd (number of items in aPcd) (and number of items in aCP is (n+1))
-            uint[] aCP = new uint[n + 1];                                                       //allocating memory for aCP - the array of CP elements that specifies the starting points of text ranges 
-            Pcd[] aPcd = new Pcd[n];                                                            //allocating memory for aPcd - the array of Pcds that specifies the location of text in WordDocument Stream
-            MemoryStream msPlcPcd = new MemoryStream(PlcPcd);                                   //create MemoryStream for PlcPcd
-            BinaryReader brPlcPsd = new BinaryReader(msPlcPcd);                                 //create BinaryReader for msPlcPcd
-            for (int i = 0; i < aCP.Length; i++) aCP[i] = brPlcPsd.ReadUInt32();                //read aCP from PlcPcd
-            for (int i = 0; i < aPcd?.Length; i++)                                              //read aPcd from PlcPcd
-            {
-                msPlcPcd.Seek(2, SeekOrigin.Current);                           //seek 2 bytes from current (to skip data that we do not need)
-                aPcd[i].fc.fc = brPlcPsd.ReadUInt32();                          //{Clx.Pcdt.PlcPcd.aPcd.FcCompressed.fc} Offset in the WordDocument where text starts [off.: variable; len.: 30 bits]
-                aPcd[i].fc.fCompressed = checkBit(aPcd[i].fc.fc, 30);           //{Clx.Pcdt.PlcPcd.aPcd.FcCompressed.fCompressed bit 30 (A)} Specifies whether the text is compressed [off.: variable; len.: 1 bit]
-                aPcd[i].fc.fc &= 0x3FFFFFFF;                                    //use bitwise and to set bits 30 and 31 to 0 (because they are not for fc in FcCompressed)
-                aPcd[i].prm.Prm0_isprm = brPlcPsd.ReadByte();                   //read first byte of Prm structure, which may be:
-                                                                                //{Clx.Pcdt.PlcPcd.aPcd.Prm0.isprm} Specifies the Sprm to apply [off.: variable; len.: 7 bits]
-                aPcd[i].prm.fComplex = checkBit(aPcd[i].prm.Prm0_isprm, 0);     //{Clx.Pcdt.PlcPcd.aPcd.Prm.fComplex} Bit that specifies which Prm to use for the current Pcd [off.: variable; len.: 1 bit]
-                if (aPcd[i].prm.fComplex)                                       //fComplex = 1 - we'll use Prm1
-                {
-                    msPlcPcd.Seek(-1, SeekOrigin.Current);                      //seek -1 byte from current (to begin reading Prm1)
-                    aPcd[i].prm.Prm1_igrpprl = brPlcPsd.ReadUInt16();           //{Clx.Pcdt.PlcPcd.aPcd.Prm1.igrpprl} Zero-based index of a Prc in Clx.RgPrc [off.: variable; len.: 15 bits]
-                    aPcd[i].prm.Prm1_igrpprl >>= 1;                             //shift igrpprl 1 bit to the left (that bit is fComplex - bit 0)
-                    aPcd[i].prm.Prm0_isprm = 0;                                 //set Prm0.isprm to zero just for case
-                    aPcd[i].prm.Prm0_val = 0;                                   //set Prm0.val to zero just for case
-                }
-                else                                                            //fComplex =0 - we'll use Prm0
-                {
-                    aPcd[i].prm.Prm0_isprm >>= 1;                               //shift isprm 1 bit to the left (that bit is fComplex - bit 0)
-                    aPcd[i].prm.Prm0_val = brPlcPsd.ReadByte();                 //{Clx.Pcdt.PlcPcd.aPcd.Prm0.val} Operand for the Sprm specified by isprm [off.: variable; len.: 8 bits]
-                }
-            }
-            brPlcPsd.Close();                                                   //we don't need brPlcPsd and msPlcPsd anymore and can close them
-
-            //read PlcBteChpx from the TableStream
-            WDStream.Seek(250, SeekOrigin.Begin);                                               //seek WDStream to the offset of fcPlcfBteChpx
-            uint fcPlcfBteChpx = brWDStream.ReadUInt32();                                       //{Fib.FibRgFcLcb97.fcPlcfBteChpx} Offset of PlcBteChpx in the Table stream [off.: 250;len.: 4 bytes]
-            uint lcbPlcfBteChpx = brWDStream.ReadUInt32();                                      //{Fib.FibRgFcLcb97.lcbPlcfBteChpx} Size in bytes of PlcBteChpx in the Table Stream [off.: 254;len.: 4 bytes]
-            TableStream.Seek(fcPlcfBteChpx, SeekOrigin.Begin);                                  //seek TableStream to the offset of PlcBteChpx
-            byte[] PlcBteChpx = brTableStream.ReadBytes((int)lcbPlcfBteChpx);                   //read PlcBteChpx from the Table stream
-
-            //retrieve two arrays from PlcBteChpx: aFC and aPnBteChpx
-            n = ((int)lcbPlcfBteChpx - 4) / (4 + 4);                                            //number of data elements in PlcBteChpx (number of items in aPnBteCHpx) (and number of items in aFC is (n+1))
-            uint[] aFC = new uint[n + 1];                                                       //allocating memory for aFC - the array of elements that specifies an offset where text with properties from aPnBteChpx begins
-            PnFkpChpx[] aPnBteChpx = new PnFkpChpx[n];                                          //allocating memory for aPnBteChpx - the array of PnFkpChpx that specifies the location of ChpxFkp in WordDocument stream
-            MemoryStream msPlcBteChpx = new MemoryStream(PlcBteChpx);                           //create MemoryStream for PlcBteChpx
-            BinaryReader brPlcBteChpx = new BinaryReader(msPlcBteChpx);                         //create BinaryReader for msPlcBteChpx
-            for (int i = 0; i < n + 1; i++) aFC[i] = brPlcBteChpx.ReadUInt32();                 //read aFC from PlcBteChpx
-            for (int i = 0; i < n; i++)
-            {
-                aPnBteChpx[i].pn = brPlcBteChpx.ReadUInt32();                                   //read aPnBteChps.pn from PlcBteChpx
-                aPnBteChpx[i].pn &= 0x3FFFFF;                                                   //use bitwise AND to drop 10 MSB in aPnBteChpx[i].pn - they're not used and must ne ignored
-            }
-            brPlcBteChpx.Close();                                                               //we don't need brPlcBteChpx & msPlcBteChpx anymore and can close them
-
-            //retrieve aChpxFkp (array of ChpxFkp structures parallel to aFC) from WordDocument stream
-            ChpxFkp[] aChpxFkp = new ChpxFkp[aPnBteChpx.Length];                                //allocated memory for aChpxFkp
-            for (int i = 0; i < aPnBteChpx.Length; i++)
-            {
-                WDStream.Seek(aPnBteChpx[i].pn + 511, SeekOrigin.Begin);                        //seek WDStream to offset of ChpxFkp.crun
-                aChpxFkp[i].crun = brWDStream.ReadByte();                                       //{ChpxFkp.crun} Number of runs of text in this ChpxFkp (MUST: >= 0x01 AND <=0x65) [1 byte]
-                aChpxFkp[i].rgfc = new uint[aChpxFkp[i].crun + 1];                              //allocate memory for aChpxFkp.rgfc
-                aChpxFkp[i].rgb = new byte[aChpxFkp[i].crun];                                   //allocate memory for aChpxFkp.rgb
-                aChpxFkp[i].chpx = new Chpx[aChpxFkp[i].crun];                                  //allocate memory for aChpxFkp.chpx
-                WDStream.Seek(aPnBteChpx[i].pn, SeekOrigin.Begin);                              //seek WDStream to the beginning of current ChpxFkp
-                for (int j = 0; j < aChpxFkp[i].crun + 1; j++)
-                    aChpxFkp[i].rgfc[j] = brWDStream.ReadUInt32();                              //{ChpxFkp.rgfc} Offset in the WordDocument stream where a run of text begins [4 bytes]
-                for (int j = 0; j < aChpxFkp[i].crun; j++)
-                {
-                    aChpxFkp[i].rgb[j] = brWDStream.ReadByte();                                 //{ChpxFkp.rgb} Specifies the offset of one of the Chpxs whithin this ChpxFkp
-                                                                                                //(MUST: offset OR 0 which means that no Chpx for this item) [1 byte]
-                    if (aChpxFkp[i].rgb[j] == 0)                            //if Chpx.rgb == 0 then there is no Chpx associated with this element or rgb
-                    {
-                        aChpxFkp[i].chpx[j].cb = 0;                         //then ChpxFkp.chpx.cb = 0
-                        aChpxFkp[i].chpx[j].grpprl = null;                  //and ChpxFkp.chpx.grpprl = null
-                    }
-                    else                                                    //if Chpx.rgb != 0 then there is Chpx associated with this element of rgb
-                    {
-                        long wdsCurPos = WDStream.Position;                 //save current position in WDStream
-                        //calculate offset of current chpx in WDStream
-                        long chpxOffset = aPnBteChpx[i].pn +                //offset of current ChpxFkp plus
-                            (aChpxFkp[i].crun + 1) * 4 +                    //length of rgfc plus
-                            aChpxFkp[i].crun +                              //length of rgb plus
-                            aChpxFkp[i].rgb[j] * 2;                         //current ChpxFkp.rgb*2 - offset of current chpx in current ChpxFkp (from the end of rgb)
-                        WDStream.Seek(chpxOffset, SeekOrigin.Begin);        //seek to offset of current chpx
-                        aChpxFkp[i].chpx[j].cb = brWDStream.ReadByte();     //{ChpxFkp.chpx.cb} Specifies the size of grpprl in bytes [1 byte]
-                        if (aChpxFkp[i].chpx[j].cb != 0)                    //if there is grpprl in this chpx then we'll read grpprl
-                        {
-                            aChpxFkp[i].chpx[j].grpprl = new Prl[1];        //allocate memory for one item of grpprl by now
-                            byte cbLeftBytes = aChpxFkp[i].chpx[j].cb;      //number of bytes left to read from the current grpprl
-                            int curPrlPos = 0;                              //current item of Prl in grpprl
-                            while (cbLeftBytes > 0)                         //reading while there are Prls unread
-                            {
-                                //read sprm and interpret its fields
-                                uint sprm = brWDStream.ReadUInt32();                                                //{Prl.sprm} Specifies the property being modified [2 bytes]
-                                aChpxFkp[i].chpx[j].grpprl[curPrlPos].sprm.ispmd = (ushort)(sprm & 0x01FF);         //{Sprm.ispmd} In combination with fSpec specifies the property being modified [9 bits]
-                                aChpxFkp[i].chpx[j].grpprl[curPrlPos].sprm.fSpec = checkBit(sprm / 512, 0);         //{Sprm.fSpec} In combination with ispmd specifies the property being modified [1 bit]
-                                aChpxFkp[i].chpx[j].grpprl[curPrlPos].sprm.sgc = (byte)((sprm / 1024) & 0x0007);    //{Sprm.sgc} Specifies the kind of document content to which this Sprm applies
-                                                                                                                    //(MUST: 1 - modifies a paragraph property, 2 - character, 3 - picture, 4 - section, 5 - table property)
-                                                                                                                    //[3 bits]
-                                aChpxFkp[i].chpx[j].grpprl[curPrlPos].sprm.spra = (byte)(sprm / 8192);              //{Sprm.spra} Size of the operand of this Sprm
-                                                                                                                    //(MUST: 0 - ToggleOperand (1 byte in size); 1 - 1 byte; 2, 4 or 5 - 2 bytes; 3 - 4 bytes; 7 - 3 bytes;
-                                                                                                                    //6 - operand is of variable length, the first byte of the operand indicates the size of the rest of the operand, except in the cases of sprmTDefTable and sprmPChgTabs
-                                                                                                                    //[3 bits]
-                                //read operand for the current sprm
-                                uint opSize = 1;                                                                    //size of the current operand
-                                switch (aChpxFkp[i].chpx[j].grpprl[curPrlPos].sprm.spra)                            //switch between sizes of the current operand specified by spra
-                                {
-                                    case 0: case 1: opSize = 1; break;                                              //spra = 0 OR 1: size is 1 byte
-                                    case 2: case 4: case 5: opSize = 2; break;                                      //spra = 2, 4 OR 5: size is 2 bytes
-                                    case 7: opSize = 3; break;                                                      //spra = 7: size is 3 bytes
-                                    case 3: opSize = 4; break;                                                      //spra = 3: size is 4 bytes
-                                    case 6:                                                                         //spra = 6: size depends on ispdm
-                                        if (aChpxFkp[i].chpx[j].grpprl[curPrlPos].sprm.sgc == 5 &&
-                                            aChpxFkp[i].chpx[j].grpprl[curPrlPos].sprm.ispmd == 0x08)               //if Sprm is sprmTDefTable
-                                        {
-                                            //operand is TDefTableOperand structure
-                                            opSize = brWDStream.ReadUInt32();                                       //{TDefTableOperand.cb} Number of bytes used by the remainder of this structure, incremented by 1 [2 bytes]
-                                            opSize++;                                                               //to get the full size of this operand
-                                            WDStream.Seek(-2, SeekOrigin.Current);                                  //seek WDStream back to the offset of the current operand
-                                        }
-                                        else if (aChpxFkp[i].chpx[j].grpprl[curPrlPos].sprm.sgc == 1 &&
-                                            aChpxFkp[i].chpx[j].grpprl[curPrlPos].sprm.ispmd == 0x15)               //if Sprm is sprmPChgTabs
-                                        {
-                                            //operand is PChgTabsOperand structure
-                                            opSize = brWDStream.ReadByte();                                         //{PChgTabsOperand.cb} Size in bytes of this operand (MUST >=2 AND <=255) [1 byte]
-                                            if (opSize < 2) return null;                                            //if cb is less than 2, then we can't read this file
-                                            if (opSize == 255)                                                      //if cb == 255 
-                                            {
-                                                //reading the operand further
-                                                byte pctdcTabs = brWDStream.ReadByte();                             //{PChgTabsDelClose.cTabs} Number of records in rgdxaDel and rgdxaClose
-                                                                                                                    //(MUST >=0 AND <=64) [1 byte]
-                                                WDStream.Seek(pctdcTabs * 4, SeekOrigin.Current);                   //seek WDStream to the offset of PChgTabsAdd
-                                                byte pctaTabs = brWDStream.ReadByte();                              //{PChgTabsAdd.cTabs} Number of records in rgdxaAdd and rgtbdAdd
-                                                                                                                    //(MUST <=64) [1 byte]
-                                                opSize = (uint)(4 * pctdcTabs + 3 * pctdcTabs);                     //calculated size of this operand without the first byte
-                                                WDStream.Seek(-pctdcTabs * 4, SeekOrigin.Current);                  //seek WDStream back
-                                            }
-                                            opSize++;                                                               //to get the full size of this operand
-                                            WDStream.Seek(-1, SeekOrigin.Current);                                  //seek WDStream back to the offset of the current operand
-                                        }
-                                        else                                                                        //for other Sprms
-                                        {
-                                            //read first byte of the operand
-                                            opSize = brWDStream.ReadByte();                                         //read size of this operand without the first byte
-                                            opSize++;                                                               //to get the full size of the operand
-                                            WDStream.Seek(-1, SeekOrigin.Current);                                  //seek WDStream back to the offset of this operand
-                                        }
-                                        break;
-                                    default: break;                                                                 //in other cases of spra assume size as 1 byte
-                                }
-                                aChpxFkp[i].chpx[j].grpprl[curPrlPos].operand = brWDStream.ReadBytes((int)opSize);  //{Prl.operand} Operand for the sprm [variable]
-                                curPrlPos++;                                                                        //increase current position in grpprl by one
-                                cbLeftBytes -= (byte)opSize;                                                        //decrease number of bytes left in current grpprl by the size of current operand
-                                if (cbLeftBytes > 0) Array.Resize(ref aChpxFkp[i].chpx[j].grpprl, curPrlPos + 1);   //reallocate memory for the next Prl in grpprl
-                            }
-                        }
-                        else aChpxFkp[i].chpx[j].grpprl = null;             //if there is no grpprl in this chpx then chpx.grpprl = null
-                        WDStream.Seek(wdsCurPos, SeekOrigin.Begin);         //finished reading current ChpxFkp.rgb and corresponding chpx - seek WDStream to the saved position
-                    }
-                }
-            }
+            if (!readChpxFkp()) return null;                                                    //try to read aChpxFkp from the WDStream (return null if couldn't - we cannot retrieve text)
 
             //reading text from WordDocument stream
             //
@@ -1521,34 +2228,102 @@ namespace WordReader
             //      is a Unicode character.
             //
             string docText = "";                                                                //buffer for the text retrieved from the document
-            for (int i = 0; i < aPcd?.Length; i++)                                              //moving through all Pcds in aPcd
+            int textLen = Fib.fibRgLw.ccpText;                                                  //length of the text in MainDocument
+            int charCount = Fib.fibRgLw.ccpText;                                                //counter of characters read from the MainDocument
+            for (int i = 0; i < Clx.pcdt.plcPcd.aPcd?.Length; i++)                              //moving through all Pcds in aPcd
             {
                 string readText = "";                                                           //current text-block read from the WordDocument stream
                 byte[] readBytes = null;                                                        //current bytes-block read from the WordDocument stream
-                if (aPcd[i].fc.fCompressed)                                                     //if fCompressed is true we will read ANSI
+                uint fc = 0;                                                                    //offset of the current character in WordDocument stream
+                uint dfc = 0;                                                                   //size in bytes of the current character
+                if (Clx.pcdt.plcPcd.aPcd[i].fc.fCompressed)                                     //if fCompressed is true we will read ANSI
                 {
-                    WDStream.Seek((aPcd[i].fc.fc / 2), SeekOrigin.Begin);                               //seek to needed offset in WordDocument stream
-                    readBytes = brWDStream.ReadBytes((int)(aCP[i + 1] - aCP[i]));                       //read current bytes-block from WordDocument stream
-                    readText = Encoding.Default.GetString(readBytes);                                   //convert ANSI bytes to Unicode string
-                    for (int j = 0; j < readBytes.Length; j++)                                          //moving through all the read bytes
+                    fc = Clx.pcdt.plcPcd.aPcd[i].fc.fc / 2;                                     //offset of the current text-block in WordDocument stream
+                    dfc = 1;                                                                    //size of one character for current text-block is 1
+                    WDStream.Seek(fc, SeekOrigin.Begin);                                        //seek to needed offset in WordDocument stream
+                    readBytes = brWDStream.ReadBytes(
+                        (int)(Clx.pcdt.plcPcd.aCP[i + 1] - 
+                        Clx.pcdt.plcPcd.aCP[i]));                                               //read current bytes-block from WordDocument stream
+                    readText = Encoding.Default.GetString(readBytes);                           //convert ANSI bytes to Unicode string
+                    for (int j = 0; j < readBytes.Length; j++)                                  //moving through all the read bytes
                     {
-                        char tmpChar;                                                                   //temporary character
-                        if (MappedToUnicode.values.TryGetValue(readBytes[j], out tmpChar))              //trying to find current ANSI byte amidst the MappedToUnicode values
-                            readText = readText.Substring(0, j) + tmpChar + readText.Substring(j + 1);  //if found, replace corresponding character in Unicode string with the one from MappedToUnicode
+                        char tmpChar;                                                           //temporary character
+                        if (MappedToUnicode.values.TryGetValue(readBytes[j], out tmpChar))      //trying to find current ANSI byte amidst the MappedToUnicode values
+                            readText = readText.Substring(0, j) + 
+                                tmpChar + 
+                                readText.Substring(j + 1);                                      //if found, replace corresponding character in Unicode string with the one from MappedToUnicode
                     }
                 }
                 else                                                                            //if fCompressed is false we will read Unicode
                 {
-                    WDStream.Seek(aPcd[i].fc.fc, SeekOrigin.Begin);                                     //seek to needed offset in WordDocument stream
-                    readBytes = brWDStream.ReadBytes((int)(2 * (aCP[i + 1] - aCP[i])));                 //read current bytes-block from WordDocument stream
-                    readText = Encoding.Unicode.GetString(readBytes);                                   //converted read bytes-block to Unicode string
+                    fc = Clx.pcdt.plcPcd.aPcd[i].fc.fc;                                         //offset of the current text-block in WordDocument stream
+                    dfc = 2;                                                                    //size of one character for current text-block is 2
+                    WDStream.Seek(fc, SeekOrigin.Begin);                                        //seek to needed offset in WordDocument stream
+                    readBytes = brWDStream.ReadBytes(
+                        (int)(2 * (Clx.pcdt.plcPcd.aCP[i + 1] - 
+                        Clx.pcdt.plcPcd.aCP[i])));                                              //read current bytes-block from WordDocument stream
+                    readText = Encoding.Unicode.GetString(readBytes);                           //converted read bytes-block to Unicode string
                 }
-                docText += readText;                                                            //add currently read text-block to the buffer of the text retrieved from the document
+
+                //compose the result text string using properties of the read characters
+                foreach (char ch in readText)                                                   //moving through all characters in the current text-block
+                {
+                    bool isCharVisible = true;                                                  //is current character visible in the text or not
+
+                    //determine visibility of current character
+                    int nFC = 0;                                                                //index in aFC corresponding to the current character offset
+                    int nrgfc = 0;                                                              //index in ChpxFkp.rgfc corresponding to the current character offset
+                    for (nFC = PlcBteChpx.aFC.Length - 1; nFC >= 0; nFC--)                      //moving through all the items in aFC
+                        if (PlcBteChpx.aFC[nFC] <= fc) break;                                   //looking for the index in aFC
+                    if (nFC < PlcBteChpx.aFC.Length - 1)                                        //if index is found (fc is a valid offset)
+                    {
+                        for (nrgfc = aChpxFkp[nFC].rgfc.Length - 1; nrgfc >= 0; nrgfc--)        //moving throuth all the items in the current ChpxFkp.rgfc
+                            if (aChpxFkp[nFC].rgfc[nrgfc] <= fc) break;                         //lokking for the index in ChpxFkp.rgfc
+                        if (nrgfc < aChpxFkp[nFC].rgfc.Length - 1)                              //if index is found (fc is a valid offset)
+                        {
+                            isCharVisible = CharPropSPRM.IsVisible(
+                                aChpxFkp[nFC].chpx[nrgfc].grpprl, 
+                                ch);                                                            //check visibility of the current character
+                            isCharVisible =
+                                (ch == '\u0007' ) ?                                             //check whether current character is a Table Termination Paragraph (TTP) mark
+                                false :                                                         //set its visibility to false if it is a TTP mark
+                                isCharVisible;                                                  //don't change visibility otherwise
+                        }
+                    }
+
+                    //use information of visibility either to append character to the result string or not
+                    if (isCharVisible) docText += ch;           //if current char is visible, add it to the result text string
+                    else textLen--;                                                             //if current char isn't visible we'll drop it and decrease the number of characters in MainDocument by 1
+                    if ((--charCount) <= 0) break;                                              //decrease counter of characters read and break if we've read all characters from the MainDocument
+                    fc += dfc;                                                                  //go to the next character and next offset
+                }
+                if (charCount <= 0) break;                                                      //break if we've read all characters from the MainDocument
             }
 
-            docText = docText.Substring(0, ccpText);                                            //cut buffer to the length of the text in MainDocument
+            docText = docText.Substring(0, textLen);                                            //cut buffer to the length of the text in MainDocument
 
             return docText;                                                                     //return the retrieved text
+        }
+
+        /// <summary>
+        /// Close DOC-file
+        /// </summary>
+        protected internal void closeDOC()
+        {
+            //close cfb readers
+            CFB.closeReader();
+
+            //clear everything
+            clearFIB();
+            clearClx();
+            CFB = null;
+            WDStream = null;
+            WDStreamPath = null;
+            TableStream = null;
+            PlcBteChpx.aFC = null;
+            PlcBteChpx.aPnBteChpx = null;
+            aChpxFkp = null;
+            docIsOK = false;
         }
         #endregion
         #endregion
