@@ -1,11 +1,8 @@
 ﻿using System;
 using System.IO;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
-using System.Runtime.InteropServices.ComTypes;
 
 namespace WordReader
 {
@@ -988,9 +985,9 @@ namespace WordReader
         }
 
         /// <summary>
-        /// Character property modifiers
+        /// Character & paragraph property modifiers
         /// </summary>
-        private static class CharPropSPRM
+        private static class PropSPRM
         {
             #region enums
             /// <summary>
@@ -1026,9 +1023,17 @@ namespace WordReader
                 /// </summary>
                 InVisible,
                 /// <summary>
-                /// Character opens or closes already opened invisible region of characters
+                /// Character opens invisible region of characters
                 /// </summary>
-                InRgn
+                OpenRgn,
+                /// <summary>
+                /// Character closes invisible region of characters
+                /// </summary>
+                CloseRgn,
+                /// <summary>
+                /// Character visibility depends on paragraph properties operand
+                /// </summary>
+                Paragraph
             }
             #endregion
 
@@ -1058,9 +1063,10 @@ namespace WordReader
             /// <summary>
             /// Class constructor
             /// </summary>
-            static CharPropSPRM()
+            static PropSPRM()
             {
-                //fill PropVisibility dictionary
+                //---== fill PropVisibility dictionary
+                //Character properties
                 PropVisibility.Add(0x0800, PropVisFlag.Visible);     //sprmCFRMarkDel
                 PropVisibility.Add(0x0801, PropVisFlag.Visible);     //sprmCFRMarkIns
                 PropVisibility.Add(0x0802, PropVisFlag.InVisible);   //sprmCFFldVanish
@@ -1105,7 +1111,7 @@ namespace WordReader
                 PropVisibility.Add(0x4852, PropVisFlag.Visible);     //sprmCCharScale
                 PropVisibility.Add(0x2A53, PropVisFlag.Visible);     //sprmCFDStrike
                 PropVisibility.Add(0x0854, PropVisFlag.Visible);     //sprmCFImprint
-                PropVisibility.Add(0x0855, PropVisFlag.InVisible);   //sprmCFSpec
+                PropVisibility.Add(0x0855, PropVisFlag.CharDep);   //sprmCFSpec
                 PropVisibility.Add(0x0856, PropVisFlag.InVisible);    //sprmCFObj
                 PropVisibility.Add(0xCA57, PropVisFlag.Visible);     //sprmCPropRMark90
                 PropVisibility.Add(0x0858, PropVisFlag.Visible);     //sprmCFEmboss
@@ -1146,21 +1152,117 @@ namespace WordReader
                 PropVisibility.Add(0xCA89, PropVisFlag.Visible);     //sprmCPropRMark
                 PropVisibility.Add(0x2A90, PropVisFlag.InVisible);   //sprmCFSdtVanish
 
-                //fill CharVisibility Dictionary
+                //Paragraph properties
+                PropVisibility.Add(0x4600, PropVisFlag.Visible);    //sprmPIstd
+                PropVisibility.Add(0xC601, PropVisFlag.Visible);    //sprmPIstdPermute
+                PropVisibility.Add(0x2602, PropVisFlag.Visible);    //sprmPIncLvl
+                PropVisibility.Add(0x2403, PropVisFlag.Visible);    //sprmPJc80
+                PropVisibility.Add(0x2405, PropVisFlag.Visible);    //sprmPFKeep
+                PropVisibility.Add(0x2406, PropVisFlag.Visible);    //sprmPFKeepFollow
+                PropVisibility.Add(0x2407, PropVisFlag.Visible);    //sprmPFPageBreakBefore
+                PropVisibility.Add(0x260A, PropVisFlag.Visible);    //sprmPIlvl
+                PropVisibility.Add(0x460B, PropVisFlag.Visible);    //sprmPIlfo
+                PropVisibility.Add(0x240C, PropVisFlag.Visible);    //sprmPFNoLineNumb
+                PropVisibility.Add(0xC60D, PropVisFlag.Visible);    //sprmPChgTabsPapx
+                PropVisibility.Add(0x840E, PropVisFlag.Visible);    //sprmPDxaRight80
+                PropVisibility.Add(0x840F, PropVisFlag.Visible);    //sprmPDxaLeft80
+                PropVisibility.Add(0x4610, PropVisFlag.Visible);    //sprmPNest80
+                PropVisibility.Add(0x8411, PropVisFlag.Visible);    //sprmPDxaLeft180
+                PropVisibility.Add(0x6412, PropVisFlag.Visible);    //sprmPDyaLine
+                PropVisibility.Add(0xA413, PropVisFlag.Visible);    //sprmPDyaBefore
+                PropVisibility.Add(0xA414, PropVisFlag.Visible);    //sprmPDyaAfter
+                PropVisibility.Add(0xC615, PropVisFlag.Visible);    //sprmPChgTabs
+                PropVisibility.Add(0x2416, PropVisFlag.Visible);    //sprmPFInTable
+                PropVisibility.Add(0x2417, PropVisFlag.CharDep);    //sprmPFTtp
+                PropVisibility.Add(0x8418, PropVisFlag.Visible);    //sprmPDxaAbs
+                PropVisibility.Add(0x8419, PropVisFlag.Visible);    //sprmPDyaAbs
+                PropVisibility.Add(0x841A, PropVisFlag.Visible);    //sprmPDxaWidth
+                PropVisibility.Add(0x261B, PropVisFlag.Visible);    //sprmPPc
+                PropVisibility.Add(0x2423, PropVisFlag.Visible);    //sprmPWr
+                PropVisibility.Add(0x6424, PropVisFlag.Visible);    //sprmPBrcTop80
+                PropVisibility.Add(0x6425, PropVisFlag.Visible);    //sprmPBrcLeft80
+                PropVisibility.Add(0x6426, PropVisFlag.Visible);    //sprmPBrcBottom80
+                PropVisibility.Add(0x6427, PropVisFlag.Visible);    //sprmPBrcRight80
+                PropVisibility.Add(0x6428, PropVisFlag.Visible);    //sprmPBrcBetween80
+                PropVisibility.Add(0x6629, PropVisFlag.Visible);    //sprmPBrcBar80
+                PropVisibility.Add(0x242A, PropVisFlag.Visible);    //sprmPFNoAutoHyph
+                PropVisibility.Add(0x442B, PropVisFlag.Visible);    //sprmPWHeightAbs
+                PropVisibility.Add(0x442C, PropVisFlag.Visible);    //sprmPDcs
+                PropVisibility.Add(0x442D, PropVisFlag.Visible);    //sprmPShd80
+                PropVisibility.Add(0x842E, PropVisFlag.Visible);    //sprmPDyaFromText
+                PropVisibility.Add(0x842F, PropVisFlag.Visible);    //sprmPDxaFromText
+                PropVisibility.Add(0x2430, PropVisFlag.Visible);    //sprmPFLocked
+                PropVisibility.Add(0x2431, PropVisFlag.Visible);    //sprmPFWidowControl
+                PropVisibility.Add(0x2433, PropVisFlag.Visible);    //sprmPFKinsoku
+                PropVisibility.Add(0x2434, PropVisFlag.Visible);    //sprmPFWordWrap
+                PropVisibility.Add(0x2435, PropVisFlag.Visible);    //sprmPFOverflowPunct
+                PropVisibility.Add(0x2436, PropVisFlag.Visible);    //sprmPFTopLinePunct
+                PropVisibility.Add(0x2437, PropVisFlag.Visible);    //sprmPFAutoSpaceDE
+                PropVisibility.Add(0x2438, PropVisFlag.Visible);    //sprmPFAutoSpaceDN
+                PropVisibility.Add(0x4439, PropVisFlag.Visible);    //sprmPWAlignFont
+                PropVisibility.Add(0x443A, PropVisFlag.Visible);    //sprmPFrameTextFlow
+                PropVisibility.Add(0x2640, PropVisFlag.Visible);    //sprmPOutLvl
+                PropVisibility.Add(0x2441, PropVisFlag.Visible);    //sprmPFBiDi
+                PropVisibility.Add(0x2443, PropVisFlag.Visible);    //sprmPFNumRMIns
+                PropVisibility.Add(0xC645, PropVisFlag.Visible);    //sprmPNumRM
+                PropVisibility.Add(0x6646, PropVisFlag.Visible);    //sprmPHugePapx
+                PropVisibility.Add(0x2447, PropVisFlag.Visible);    //sprmPFUsePgsuSettings
+                PropVisibility.Add(0x2448, PropVisFlag.Visible);    //sprmPFAdjustRight
+                PropVisibility.Add(0x6649, PropVisFlag.Visible);    //sprmPItap
+                PropVisibility.Add(0x664A, PropVisFlag.Visible);    //sprmPDtap
+                PropVisibility.Add(0x244B, PropVisFlag.CharDep);    //sprmPFInnerTableCell
+                PropVisibility.Add(0x244C, PropVisFlag.Visible);    //sprmPFInnerTtp
+                PropVisibility.Add(0xC64D, PropVisFlag.Visible);    //sprmPShd
+                PropVisibility.Add(0xC64E, PropVisFlag.Visible);    //sprmPBrcTop
+                PropVisibility.Add(0xC64F, PropVisFlag.Visible);    //sprmPBrcLeft
+                PropVisibility.Add(0xC650, PropVisFlag.Visible);    //sprmPBrcBottom
+                PropVisibility.Add(0xC651, PropVisFlag.Visible);    //sprmPBrcRight
+                PropVisibility.Add(0xC652, PropVisFlag.Visible);    //sprmPBrcBetween
+                PropVisibility.Add(0xC653, PropVisFlag.Visible);    //sprmPBrcBar
+                PropVisibility.Add(0x4455, PropVisFlag.Visible);    //sprmPDxcRight
+                PropVisibility.Add(0x4456, PropVisFlag.Visible);    //sprmPDxcLeft
+                PropVisibility.Add(0x4457, PropVisFlag.Visible);    //sprmPDxcLeft1
+                PropVisibility.Add(0x4458, PropVisFlag.Visible);    //sprmPDylBefore
+                PropVisibility.Add(0x4459, PropVisFlag.Visible);    //sprmPDylAfter
+                PropVisibility.Add(0x245A, PropVisFlag.Visible);    //sprmPFOpenTch
+                PropVisibility.Add(0x245B, PropVisFlag.Visible);    //sprmPFDyaBeforeAuto
+                PropVisibility.Add(0x245C, PropVisFlag.Visible);    //sprmPFDyaAfterAuto
+                PropVisibility.Add(0x845D, PropVisFlag.Visible);    //sprmPDxaRight
+                PropVisibility.Add(0x845E, PropVisFlag.Visible);    //sprmPDxaLeft
+                PropVisibility.Add(0x465F, PropVisFlag.Visible);    //sprmPNest
+                PropVisibility.Add(0x8460, PropVisFlag.Visible);    //sprmPDxaLeft1
+                PropVisibility.Add(0x2461, PropVisFlag.Visible);    //sprmPJc
+                PropVisibility.Add(0x2462, PropVisFlag.Visible);    //sprmPFNoAllowOverlap
+                PropVisibility.Add(0x2664, PropVisFlag.Visible);    //sprmPWall
+                PropVisibility.Add(0x6465, PropVisFlag.Visible);    //sprmPIpgp
+                PropVisibility.Add(0xC666, PropVisFlag.Visible);    //sprmPCnf
+                PropVisibility.Add(0x6467, PropVisFlag.Visible);    //sprmPRsid
+                PropVisibility.Add(0xC669, PropVisFlag.Visible);    //sprmPIstdListPermute
+                PropVisibility.Add(0x646B, PropVisFlag.Visible);    //sprmPTableProps
+                PropVisibility.Add(0xC66C, PropVisFlag.Visible);    //sprmPTIstdInfo
+                PropVisibility.Add(0x246D, PropVisFlag.Visible);    //sprmPFContextualSpacing
+                PropVisibility.Add(0xC66F, PropVisFlag.Visible);    //sprmPPropRMark
+                PropVisibility.Add(0x2470, PropVisFlag.Visible);    //sprmPFMirrorIndents
+                PropVisibility.Add(0x2471, PropVisFlag.Visible);    //sprmPTtwo
+
+                //---== fill CharVisibility Dictionary
                 CharVisibility.Add('\u0001', CharVisFlag.InVisible);    //picture location
                 CharVisibility.Add('\u0002', CharVisFlag.InVisible);    //auto-numbered footnote reference
                 CharVisibility.Add('\u0003', CharVisFlag.InVisible);    //short horizontal line
                 CharVisibility.Add('\u0004', CharVisFlag.InVisible);    //long horizontal line
                 CharVisibility.Add('\u0005', CharVisFlag.InVisible);    //annotation reference character
                 CharVisibility.Add('\u0008', CharVisFlag.InVisible);    //drawn object
-                CharVisibility.Add('\u0013', CharVisFlag.InRgn);        //field begin character
-                CharVisibility.Add('\u0014', CharVisFlag.InRgn);        //field separator character
+                CharVisibility.Add('\u0013', CharVisFlag.OpenRgn);      //field begin character
+                CharVisibility.Add('\u0014', CharVisFlag.CloseRgn);     //field separator character
                 CharVisibility.Add('\u0015', CharVisFlag.InVisible);    //field end character
-                CharVisibility.Add('\u0028', CharVisFlag.InVisible);    //symbol
-                CharVisibility.Add('\u003C', CharVisFlag.InRgn);        //start of a structured document tag bookmark range
-                CharVisibility.Add('\u003E', CharVisFlag.InRgn);        //end of a structured document tag bookmark range
+                CharVisibility.Add('\u0028', CharVisFlag.Visible);      //symbol '('
+                CharVisibility.Add('\u003C', CharVisFlag.OpenRgn);      //start of a structured document tag bookmark range
+                CharVisibility.Add('\u003E', CharVisFlag.CloseRgn);     //end of a structured document tag bookmark range
                 CharVisibility.Add('\u2002', CharVisFlag.Visible);      //en space
                 CharVisibility.Add('\u2003', CharVisFlag.Visible);      //em space
+                CharVisibility.Add('\u0007', CharVisFlag.InVisible);    //cell mark
+                CharVisibility.Add('\u000D', CharVisFlag.Paragraph);    //paragraph mark
+
             }
             #endregion
 
@@ -1178,7 +1280,20 @@ namespace WordReader
                 //      It saves its condition (values of fields). And we'll use this feature of static classes.
                 //
 
-                Visible = true;                                                 //set visibility of ch to true
+                CharVisFlag cvf = CharVisFlag.Visible;                          //flag of character visibility according to the character itself
+                bool hasCharInformation =                                       //flags successfullness of retrieving infomation in CharVisibility dictionary
+                    CharVisibility.TryGetValue(ch, out cvf);                    //trying to find current character in CharVisibility dictionary
+
+                switch (cvf)                                                    //switch current character visibility infomration
+                {
+                    case CharVisFlag.Visible: Visible = true; break;            //visible
+                    case CharVisFlag.InVisible: Visible = false; break;         //invisible
+                    default: Visible = true; break;                             //visible in any other cases
+                }
+
+                if (prls == null)                                               //if there are no prls for ch 
+                    return Visible && !InvisibleRgn;                            //return true if character is visible and is not inside the invisible region
+
                 foreach (Prl prl in prls)                                       //moving through all prl-s
                 {
                     PropVisFlag pvf = PropVisFlag.Visible;                      //flag of character visibility according to its properties
@@ -1193,20 +1308,26 @@ namespace WordReader
                                 Visible = false;                                //set visibility of character to false
                                 break;
                             case PropVisFlag.CharDep:                           //visibility of the character with current property depends of the character itself
-                                CharVisFlag cvf = CharVisFlag.Visible;          //flag of character visibility according to the character itself
-                                if (CharVisibility.TryGetValue(ch, out cvf))    //trying to find current character in CharVisibility dictionary
-                                                                                //and to get information of visibility of the current character
+                                if (hasCharInformation)                         //if CharVisibility dictionary has information about current character
                                 {
-                                    switch (cvf)                                //if character was found in the dictionary choose visibility flag
+                                    switch (cvf)                                //choose visibility flag (not used previously cases)
                                     {
-                                        case CharVisFlag.Visible:               //current character is visible - we'll do nothing
-                                            break;
-                                        case CharVisFlag.InVisible:             //current character is invisible
-                                            Visible = false;                    //set visibility of character to false
-                                            break;
-                                        case CharVisFlag.InRgn:                 //current character begins or ends the region of invisible characters
-                                            InvisibleRgn = !InvisibleRgn;       //invert value of the flag that says us that current character is inside invisible region
+                                        case CharVisFlag.OpenRgn:               //current character opens the region of invisible characters
+                                            InvisibleRgn = true;                //set the flag that says us that current character is inside invisible region to true
                                             Visible = false;                    //but current character is invisible anyway
+                                            break;
+                                        case CharVisFlag.CloseRgn:              //current character closes the region of invisible characters
+                                            InvisibleRgn = false;               //set the flag that says us that current character is inside invisible region to false
+                                            Visible = false;                    //but current character is invisible anyway
+                                            break;
+                                        case CharVisFlag.Paragraph:             //current character properties depends of the paragraph properties operand
+                                            if (prl.sprm.sprm == 0x2417 &&      //current Sprm is sprmPFTtp
+                                                ch == '\u0007' ||               //and current character is a cell mark
+                                                prl.sprm.sprm == 0x244B &&      //OR current Sprm is sprmPFInnerTableCell
+                                                ch == '\u000D')                 //and current character is a paragraph mark
+                                            {
+                                                Visible = false;                //set visibility of character to false
+                                            }
                                             break;
                                     }
                                 }
@@ -1632,6 +1753,12 @@ namespace WordReader
             internal short istd;
 
             /// <summary>
+            /// Size of GrpPrl, in bytes (used only in case of sprmPHugePapx property applied (when PrcData structure replaces GrpPrlAndIstd))
+            /// [off.: 0; len.: 2 bytes]
+            /// </summary>
+            internal short cbGrpprl;
+
+            /// <summary>
             /// Specifies the properties of this paragraph, table row, or table cell [off.: 2; len.: variable]
             /// </summary>
             internal Prl[] grpprl;
@@ -1744,6 +1871,7 @@ namespace WordReader
         private MemoryStream WDStream = null;       //WordDocument stream (Main Document)
         private string WDStreamPath = null;         //Path to WordDocument stream if it is read from CFB (Main Document)
         private MemoryStream TableStream = null;    //Table stream (of the Main Document)
+        private MemoryStream DataStream = null;     //Data stream (of the Main Document)
         private FIB Fib;                            //FIB in the WDStream
         private CLX Clx;                            //Clx in the TableStream
         private PLCBTECHPX PlcBteChpx;              //PlcBteChpx in the Table stream
@@ -1999,7 +2127,7 @@ namespace WordReader
                 int curRgPrcPos = Clx.RgPrc.Length - 1;                                         //current position in RgPrc array (index of the last item)
                 Clx.RgPrc[curRgPrcPos].clxt = clxt;                                             //save clxt to RgPrc
                 Clx.RgPrc[curRgPrcPos].data.cbGrpprl = brclx.ReadInt16();                       //read cdGrpprl from brClx
-                if (Clx.RgPrc[curRgPrcPos].data.cbGrpprl > 0x3FA2)                              //if cbGrpprl is greater than 0x3FA2 then we can't read the Clx - we can't read it
+                if (Clx.RgPrc[curRgPrcPos].data.cbGrpprl > 0x3FA2)                              //if cbGrpprl is greater than 0x3FA2 then something is wrong with the Clx - we can't read it
                 {
                     clearClx();                                                                 //clear Clx
                     return false;                                                               //return false
@@ -2357,6 +2485,7 @@ namespace WordReader
                         aPapxFkp[i].papxInFkp[j].cb = 0;                                            //then PapxFkp.papxInFkp.cb = 0
                         aPapxFkp[i].papxInFkp[j].cb_ = 0;                                           //then PapxFkp.papxInFkp.cb_ = 0
                         aPapxFkp[i].papxInFkp[j].grpprlInPapx.istd = 0;                             //then PapxFkp.papxInFkp.grpprlInPapx.istd = 0
+                        aPapxFkp[i].papxInFkp[j].grpprlInPapx.cbGrpprl = 0;                         //then PapxFkp.papxInFkp.grpprlInPapx.cbGrpprl = 0
                         aPapxFkp[i].papxInFkp[j].grpprlInPapx.grpprl = null;                        //and ChpxFkp.chpx.grpprl = null
                     }
                     else                                                                            //if Papx.rgbx.bOffset != 0 then there is PaInFkp associated with this element of rgbx
@@ -2378,6 +2507,7 @@ namespace WordReader
                         {
                             aPapxFkp[i].papxInFkp[j].grpprlInPapx.istd = brPapx.ReadInt16();        //read istd
                             cb -= 2;                                                                //decrease number of bytes left to read
+                            aPapxFkp[i].papxInFkp[j].grpprlInPapx.cbGrpprl = (short)cb;             //save cb value to cdGrpprl
                             while (cb > 0)                                                          //reading while there are GrpPrlAndIstd-s unread
                             {   
                                 if (aPapxFkp[i].papxInFkp[j].grpprlInPapx.grpprl == null)
@@ -2391,6 +2521,53 @@ namespace WordReader
                                 short readBytes = readSprm(
                                         ref aPapxFkp[i].papxInFkp[j].grpprlInPapx.grpprl[curPrlPos],
                                         ref brPapx);                                                //read current Prl
+                                if (aPapxFkp[i].papxInFkp[j].grpprlInPapx.
+                                    grpprl[curPrlPos].sprm.sprm == 0x6646)                          //if current Sprm is sprmPHugePapx
+                                {
+                                    if (curPrlPos == 0)                                             //if this is the first Prl in array
+                                    {
+                                        //then we must read PrcData from DataStream to the GrpPrlAndIstd
+                                        uint prcDataOffset =
+                                            BitConverter.ToUInt32(
+                                            aPapxFkp[i].papxInFkp[j].grpprlInPapx.grpprl[0].operand, 
+                                            0);                                                     //get offset of the PrcData in DataStream from the operand
+                                        if (!readPrcDatafromDataStream(
+                                            ref aPapxFkp[i].papxInFkp[j].grpprlInPapx,
+                                            prcDataOffset))                                         //if couldn't retrieve PrcData from DataStream then we can't read aPapxFkp
+                                        {
+                                            aPapxFkp = null;                                        //set aPapxFkp to null
+                                            return false;                                           //ans return false
+                                        }
+                                        break;                                                      //stop reading Prls from the current PapxFkp
+                                    }
+                                    else                                                            //if this Prl isn't first in this array
+                                    {
+                                        //then this Prl was added by mistake - we'll just clear it
+                                        aPapxFkp[i].papxInFkp[j].grpprlInPapx.grpprl[curPrlPos].operand = null;
+                                        aPapxFkp[i].papxInFkp[j].grpprlInPapx.grpprl[curPrlPos].sprm.fSpec = false;
+                                        aPapxFkp[i].papxInFkp[j].grpprlInPapx.grpprl[curPrlPos].sprm.ispmd = 0;
+                                        aPapxFkp[i].papxInFkp[j].grpprlInPapx.grpprl[curPrlPos].sprm.sgc = 0;
+                                        aPapxFkp[i].papxInFkp[j].grpprlInPapx.grpprl[curPrlPos].sprm.spra = 0;
+                                        aPapxFkp[i].papxInFkp[j].grpprlInPapx.grpprl[curPrlPos].sprm.sprm = 0;
+                                    }
+                                }
+                                if (aPapxFkp[i].papxInFkp[j].grpprlInPapx.
+                                    grpprl[curPrlPos].sprm.sprm == 0x646B)                          //if current Sprm is sprmPTableProps
+                                {
+                                    //then we must read PrcData from DataStream to the GrpPrlAndIstd
+                                    uint prcDataOffset =
+                                        BitConverter.ToUInt32(
+                                        aPapxFkp[i].papxInFkp[j].grpprlInPapx.grpprl[0].operand,
+                                        0);                                                         //get offset of the PrcData in DataStream from the operand
+                                    if (!readPrcDatafromDataStream(
+                                        ref aPapxFkp[i].papxInFkp[j].grpprlInPapx,
+                                        prcDataOffset))                                             //if couldn't retrieve PrcData from DataStream then we can't read aPapxFkp
+                                    {
+                                        aPapxFkp = null;                                            //set aPapxFkp to null
+                                        return false;                                               //ans return false
+                                    }
+                                    break;                                                          //stop reading Prls from the current PapxFkp
+                                }
                                 if (readBytes == 0)                                                 //if couldn't read current Prl then we cannot read aPapxFkp
                                 {
                                     aPapxFkp = null;                                                //set aPapxFkp to null
@@ -2402,12 +2579,61 @@ namespace WordReader
                         else                                                                        //if there is no grpprl in this papxInFkp
                         {
                             aPapxFkp[i].papxInFkp[j].grpprlInPapx.grpprl = null;                    //then papxInFkp.grpprlInPapx.grpprl = null
+                            aPapxFkp[i].papxInFkp[j].grpprlInPapx.cbGrpprl = 0;                     //and papxInFkp.grpprlInPapx.cbGrpprl = 0;
                         }
                     }
                 }
                 brPapx.Close();                                                                     //close brPapx - we do not need it anymore
             }
             return true;                                                                            //return true
+        }
+
+        /// <summary>
+        /// Read PrcData structure from Data stream
+        /// </summary>
+        /// <param name="prcData">GrpPrlAndIstd structure to store PrcData in</param>
+        /// <param name="offset">Offset of PrcData structure in the Data stream</param>
+        /// <returns>TRUE if read successfully</returns>
+        private bool readPrcDatafromDataStream(ref GrpPrlAndIstd prcData, uint offset)
+        {
+            if (DataStream == null)                                                             //if Data stream was not read from the CFB
+            {
+                //generate path to the Data stream and read it from CFB
+                string Path = WDStreamPath.Substring(0, WDStreamPath.LastIndexOf('\\') + 1);    //Data stream should be located in the same storage as WordDocument stream
+                Path += "Data";                                                                 //add the name of the Data stream to Path
+                DataStream = CFB.getStream(Path);                                               //get Data stream from CFB
+                if (DataStream == null) return false;                                           //if Data stream was not found we won't be able to read PrcData from it
+            }
+
+            BinaryReader brDataStream = new BinaryReader(DataStream);                           //create Binary Reader for DataStream
+
+            DataStream.Seek(offset, SeekOrigin.Begin);                                          //seek DataStream to the offset of PrcData
+
+            prcData.cbGrpprl = brDataStream.ReadInt16();                                        //read cdGrpprl
+            if (prcData.cbGrpprl > 0x3FA2)                                                      //if cbGrpprl is greater than 0x3FA2 then we can't read the PrcData
+            {
+                //return false
+                return false;
+            }
+            short leftToRead = prcData.cbGrpprl;                                                //number of bytes left to read from GrpPrl
+            while (leftToRead > 0)                                                              //while there are bytes left unread in GrpPrl
+            {
+                if (prcData.grpprl == null)
+                    prcData.grpprl = new Prl[1];                                                //allocate memory for GrpPrl
+                else
+                    Array.Resize(ref prcData.grpprl, prcData.grpprl.Length + 1);                //or reallocate it if already done
+                int curGrpPrlPos = prcData.grpprl.Length - 1;                                   //current position in GrpPrl array (index of the last item)
+                short readBytes = readSprm(
+                    ref prcData.grpprl[curGrpPrlPos],
+                    ref brDataStream);                                                          //read current Prl from brDataStream
+                if (readBytes == 0)                                                             //if couldn't read Prl then we can't read PrcData
+                {
+                    //return false
+                    return false;
+                }
+                leftToRead -= readBytes;                                                        //decrease number of bytes left to read from GrpPrl by length of currently read Prl
+            }
+            return true;                                                                        //return true
         }
         #endregion
 
@@ -2530,9 +2756,26 @@ namespace WordReader
                 {
                     bool isCharVisible = true;                                                  //is current character visible in the text or not
 
-                    //determine visibility of current character
+                    //determine visibility of current character by paragraph properties (PlcBtePapx & aPapxFkp)
                     int nFC = 0;                                                                //index in aFC corresponding to the current character offset
-                    int nrgfc = 0;                                                              //index in ChpxFkp.rgfc corresponding to the current character offset
+                    int nrgfc = 0;                                                              //index in PapxFkp.rgfc corresponding to the current character offset
+                    for (nFC = PlcBtePapx.aFC.Length - 1; nFC >= 0; nFC--)                      //moving through all the items in aFC
+                        if (PlcBtePapx.aFC[nFC] <= fc) break;                                   //looking for the index in aFC
+                    if (nFC < PlcBtePapx.aFC.Length - 1)                                        //if index is found (fc is a valid offset)
+                    {
+                        for (nrgfc = aPapxFkp[nFC].rgfc.Length - 1; nrgfc >= 0; nrgfc--)        //moving throuth all the items in the current PapxFkp.rgfc
+                            if (aPapxFkp[nFC].rgfc[nrgfc] <= fc) break;                         //lokking for the index in PapxFkp.rgfc
+                        if (nrgfc < aPapxFkp[nFC].rgfc.Length - 1)                              //if index is found (fc is a valid offset)
+                        {
+                            isCharVisible = PropSPRM.IsVisible(
+                                aPapxFkp[nFC].papxInFkp[nrgfc].grpprlInPapx.grpprl,
+                                ch);                                                            //check visibility of the current character
+                        }
+                    }
+
+                    //determine visibility of current character by direct characters properties (PlcBteChpx & aChpxFkp)
+                    nFC = 0;                                                                    //index in aFC corresponding to the current character offset
+                    nrgfc = 0;                                                                  //index in ChpxFkp.rgfc corresponding to the current character offset
                     for (nFC = PlcBteChpx.aFC.Length - 1; nFC >= 0; nFC--)                      //moving through all the items in aFC
                         if (PlcBteChpx.aFC[nFC] <= fc) break;                                   //looking for the index in aFC
                     if (nFC < PlcBteChpx.aFC.Length - 1)                                        //if index is found (fc is a valid offset)
@@ -2541,18 +2784,14 @@ namespace WordReader
                             if (aChpxFkp[nFC].rgfc[nrgfc] <= fc) break;                         //lokking for the index in ChpxFkp.rgfc
                         if (nrgfc < aChpxFkp[nFC].rgfc.Length - 1)                              //if index is found (fc is a valid offset)
                         {
-                            isCharVisible = CharPropSPRM.IsVisible(
-                                aChpxFkp[nFC].chpx[nrgfc].grpprl, 
+                            isCharVisible = PropSPRM.IsVisible(
+                                aChpxFkp[nFC].chpx[nrgfc].grpprl,
                                 ch);                                                            //check visibility of the current character
-                            isCharVisible =
-                                (ch == '\u0007' ) ?                                             //check whether current character is a Table Termination Paragraph (TTP) mark
-                                false :                                                         //set its visibility to false if it is a TTP mark
-                                isCharVisible;                                                  //don't change visibility otherwise
                         }
                     }
 
                     //use information of visibility either to append character to the result string or not
-                    if (isCharVisible) docText += ch;           //if current char is visible, add it to the result text string
+                    if (isCharVisible) docText += ch;                                           //if current char is visible, add it to the result text string
                     else textLen--;                                                             //if current char isn't visible we'll drop it and decrease the number of characters in MainDocument by 1
                     if ((--charCount) <= 0) break;                                              //decrease counter of characters read and break if we've read all characters from the MainDocument
                     fc += dfc;                                                                  //go to the next character and next offset
@@ -2582,7 +2821,10 @@ namespace WordReader
             TableStream = null;
             PlcBteChpx.aFC = null;
             PlcBteChpx.aPnBteChpx = null;
+            PlcBtePapx.aFC = null;
+            PlcBtePapx.aPnBtePapx = null;
             aChpxFkp = null;
+            aPapxFkp = null;
             docIsOK = false;
         }
         #endregion
