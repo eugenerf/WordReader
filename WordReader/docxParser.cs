@@ -18,6 +18,13 @@ namespace WordReader
         #region private
         private XmlDocument xDocx = null;   //Main Document of the DOCX
         #endregion
+
+        #region protected internal
+        /// <summary>
+        /// True is file exists and is a Open XML DOCX file
+        /// </summary>
+        protected internal bool docxIsOK = false;
+        #endregion
         #endregion
 
         #region Constructors
@@ -27,6 +34,8 @@ namespace WordReader
         /// <param name="filePath">Path to the DOCX file</param>
         protected internal docxParser(string filePath)
         {
+            docxIsOK = false;                                               //starting to construct, set docxIsOK flag to false (we no nothing about the file specified)
+
             ZipArchive zArchive;                                            //ZIP-archive package of the specified DOCX
             ZipArchiveEntry zArchiveEntry;                                  //one entry in zArchive
             Stream zsEntry;                                                 //stream for reading zArchiveEntry
@@ -74,6 +83,9 @@ namespace WordReader
             ztrEntry = new StreamReader(zsEntry, true);                     //create TextReader for zsEntry
             xDocx = new XmlDocument();                                      //create new XmlDocument to read the MainDocument
             xDocx.Load(ztrEntry);                                           //load ztrEntry to xDocx as XML
+
+            docxIsOK = true;                                                //construction finished, set docxIsOK flag to true
+                                                                            //(we successfully read the file specified and loaded the  MainDocument item of it)
         }
         #endregion
 
