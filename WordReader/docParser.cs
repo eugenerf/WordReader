@@ -6,7 +6,7 @@ using System.Text;
 
 namespace WordReader
 {
-    class docParser
+    public class docParser
     {
         #region Classes
         /// <summary>
@@ -243,6 +243,11 @@ namespace WordReader
             {
                 fileReader = reader;            //stored reader to the field
                 CFHeaderIsOK = readCFHeader();  //read and checked the CF Header
+                if (CFHeaderIsOK == false)          //if header is not OK then that is not a Compound Binary file
+                {
+                    closeReader();                  //close reader
+                    return;                         //stop construction and return
+                }
                 readDIFAT();                    //read DIFAT
                 readFAT();                      //read FAT
                 readminiFAT();                  //read miniFAT
@@ -1880,11 +1885,11 @@ namespace WordReader
         private PapxFkp[] aPapxFkp;                 //array of PapxFkp structures in the WDStream
         #endregion
 
-        #region protected internal
+        #region public
         /// <summary>
         /// True is file exists, is OK and is a Word Binary File
         /// </summary>
-        protected internal bool docIsOK = false;
+        public bool docIsOK = false;
         #endregion
         #endregion
 
@@ -1893,7 +1898,7 @@ namespace WordReader
         /// Class constructor
         /// </summary>
         /// <param name="filePath">Path to the file to be read</param>
-        protected internal docParser(string filePath)
+        public docParser(string filePath)
         {
             FileStream fileStream;                                                      //FileStream for the specified file
             try
@@ -1922,7 +1927,7 @@ namespace WordReader
         /// Class constructor
         /// </summary>
         /// <param name="fileStream">FileStream of the opened file</param>
-        protected internal docParser(FileStream fileStream)
+        public docParser(FileStream fileStream)
         {
             if (fileStream == null) return;                                             //if no FileStream was specified we will just return
 
@@ -2637,12 +2642,12 @@ namespace WordReader
         }
         #endregion
 
-        #region protected internal
+        #region public
         /// <summary>
         /// Retrieve text from the document
         /// </summary>
         /// <returns>String containing the document text (null if couldn't)</returns>
-        protected internal string getText()
+        public string getText()
         {
             if (CFB == null) return null;                                                       //if CompoundFileBinary was not created there is nothing to read
 
@@ -2807,7 +2812,7 @@ namespace WordReader
         /// <summary>
         /// Close DOC-file
         /// </summary>
-        protected internal void closeDOC()
+        public void closeDOC()
         {
             //close cfb readers
             CFB.closeReader();

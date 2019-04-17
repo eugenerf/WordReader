@@ -5,7 +5,7 @@ using System.Xml;
 
 namespace WordReader
 {
-    class docxParser
+    public class docxParser
     {
         #region Constants
         //Path within the DOCX package to the required item rels, which contains the reference to the Main document item
@@ -19,11 +19,11 @@ namespace WordReader
         private XmlDocument xDocx = null;   //Main Document of the DOCX
         #endregion
 
-        #region protected internal
+        #region public
         /// <summary>
         /// True is file exists and is a Open XML DOCX file
         /// </summary>
-        protected internal bool docxIsOK = false;
+        public bool docxIsOK = false;
         #endregion
         #endregion
 
@@ -32,7 +32,7 @@ namespace WordReader
         /// Class constructor
         /// </summary>
         /// <param name="filePath">Path to the DOCX file</param>
-        protected internal docxParser(string filePath)
+        public docxParser(string filePath)
         {
             docxIsOK = false;                                               //starting to construct, set docxIsOK flag to false (we no nothing about the file specified)
 
@@ -122,12 +122,12 @@ namespace WordReader
         }
         #endregion
 
-        #region protected internal
+        #region public
         /// <summary>
         /// Get text from the DOCX-file
         /// </summary>
         /// <returns>String containing the text from DOCX-file or null</returns>
-        protected internal string getText()
+        public string getText()
         {
             if (xDocx == null) return null;             //if no MainDocument has been opened, return null
 
